@@ -314,6 +314,7 @@ where
             CLASS_MASS_STORAGE,
             SUBCLASS_UFI,
             T::PROTO,
+            None,
         )?;
         writer.interface(self.interface, CLASS_MASS_STORAGE, SUBCLASS_UFI, T::PROTO)?;
 
