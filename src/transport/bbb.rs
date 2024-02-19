@@ -174,12 +174,15 @@ where
     /// Panics if called during any by Data Transfer state. Usually, this means an error in
     /// class implementation.
     pub fn set_status(&mut self, status: CommandStatus) {
-        assert!(matches!(
-            self.state,
-            State::DataTransferToHost | State::DataTransferFromHost | State::DataTransferNoData
-        ));
+        // assert!(matches!(
+        //     self.state,
+        //     State::DataTransferToHost | State::DataTransferFromHost | State::DataTransferNoData
+        // ));
         info!("usb: bbb: Set status: {}", status);
         self.cs = Some(status);
+        if let Some(CommandStatus::PhaseError) | Some(CommandStatus::Failed) = self.cs {
+            self.end_data_transfer().unwrap();
+        }
     }
 
     /// Returns a Command Block if present

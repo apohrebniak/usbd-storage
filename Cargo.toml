@@ -32,33 +32,37 @@ ufi = []
 scsi = []
 
 # base runtime configuration for cortex m
-[dev-dependencies.cortex-m-rt]
-version = "0.7.3"
+#[dev-dependencies.cortex-m-rt]
+#version = "0.7.3"
+#
+## access to core peripherals
+#[dev-dependencies.cortex-m]
+#version = "0.7.7"
+#features = ["critical-section-single-core"]
+#
+## embedded_hal implementation for stm32fxx
+## "stm32f411" feature brings the "device crate"
+## "usb_fs" enables OTG peripheral access
+## https://docs.rs/cortex-m-rt/latest/cortex_m_rt/#device
+#[dev-dependencies.stm32f4xx-hal]
+#version = "0.20.0"
+#features = ["stm32f411", "usb_fs"]
+#
+## peripheral-access crate
+#[dev-dependencies.stm32f4]
+#version = "0.15.1"
+#
+## logging
+#[dev-dependencies.defmt]
+#version = "0.3.4"
+#
+## logging transport
+#[dev-dependencies.defmt-rtt]
+#version = "0.4.0"
 
-# access to core peripherals
-[dev-dependencies.cortex-m]
-version = "0.7.7"
-features = ["critical-section-single-core"]
-
-# embedded_hal implementation for stm32fxx
-# "stm32f411" feature brings the "device crate"
-# "usb_fs" enables OTG peripheral access
-# https://docs.rs/cortex-m-rt/latest/cortex_m_rt/#device
-[dev-dependencies.stm32f4xx-hal]
-version = "0.20.0"
-features = ["stm32f411", "usb_fs"]
-
-# peripheral-access crate
-[dev-dependencies.stm32f4]
-version = "0.15.1"
-
-# logging
-[dev-dependencies.defmt]
-version = "0.3.4"
-
-# logging transport
-[dev-dependencies.defmt-rtt]
-version = "0.4.0"
+[[test]]
+name = "scsi_bbb"
+required-features = ["scsi", "bbb"]
 
 [[example]]
 name = "stm32f411x_ufi_bbb"
