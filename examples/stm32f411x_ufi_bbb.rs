@@ -3,6 +3,7 @@
 
 use core::mem::MaybeUninit;
 use defmt_rtt as _;
+use stm32f4xx_hal::gpio::alt::otg_fs::{Dm, Dp};
 
 use stm32f4xx_hal::gpio::GpioExt;
 use stm32f4xx_hal::otg_fs::{UsbBus, USB};
@@ -90,8 +91,8 @@ fn main() -> ! {
         usb_global: dp.OTG_FS_GLOBAL,
         usb_device: dp.OTG_FS_DEVICE,
         usb_pwrclk: dp.OTG_FS_PWRCLK,
-        pin_dm: pin_usb_dm.into_alternate(),
-        pin_dp: pin_usb_dp.into_alternate(),
+        pin_dm: Dm::from(pin_usb_dm.into_alternate()),
+        pin_dp: Dp::from(pin_usb_dp.into_alternate()),
         hclk: clocks.hclk(),
     };
 
@@ -102,9 +103,11 @@ fn main() -> ! {
     .unwrap();
 
     let mut usb_device = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0xabcd, 0xabcd))
-        .manufacturer("Foo Bar")
-        .product("STM32 USB Floppy")
-        .serial_number("FOOBAR1234567890ABCDEF")
+        .strings(&[StringDescriptors::new(LangID::EN)
+            .manufacturer("Foo Bar")
+            .product("STM32 USB Floppy")
+            .serial_number("FOOBAR1234567890ABCDEF")])
+        .unwrap()
         .self_powered(false)
         .build();
 

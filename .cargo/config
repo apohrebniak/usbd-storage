@@ -1,4 +1,4 @@
-[build]
+[build.'cfg(not(test))']
 target = "thumbv7em-none-eabihf"
 
 [target.thumbv7em-none-eabihf]
