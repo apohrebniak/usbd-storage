@@ -2,6 +2,7 @@
 #![no_main]
 
 use core::mem::MaybeUninit;
+use core::ptr::addr_of_mut;
 use defmt_rtt as _;
 use stm32f4xx_hal::gpio::alt::otg_fs::{Dm, Dp};
 
@@ -98,7 +99,7 @@ fn main() -> ! {
         hclk: clocks.hclk(),
     };
 
-    let usb_bus = UsbBus::new(usb_peripheral, unsafe { &mut USB_EP_MEMORY });
+    let usb_bus = UsbBus::new(usb_peripheral, unsafe { &mut *addr_of_mut!(USB_EP_MEMORY) });
     let mut scsi =
         usbd_storage::subclass::scsi::Scsi::new(&usb_bus, USB_PACKET_SIZE, MAX_LUN, unsafe {
             USB_TRANSPORT_BUF.assume_init_mut().as_mut_slice()
