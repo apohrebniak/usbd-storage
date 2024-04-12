@@ -1,0 +1,54 @@
+[package]
+name = "examples"
+description = "USB Mass Storage class device examples"
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/apohrebniak/usbd-storage"
+homepage = "https://github.com/apohrebniak/usbd-storage"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+# USB Mass Storage
+[dependencies.usbd-storage]
+path = "../usbd-storage"
+features = ["bbb", "defmt", "scsi", "ufi"]
+
+# USB stack
+[dependencies.usb-device]
+version = "0.3"
+
+# Logging
+[dependencies.defmt]
+version = "0.3.4"
+
+# logging transport
+[dependencies.defmt-rtt]
+version = "0.4.0"
+
+# base runtime configuration for cortex m
+[dependencies.cortex-m-rt]
+version = "0.7.3"
+
+# access to core peripherals
+[dependencies.cortex-m]
+version = "0.7.7"
+features = ["critical-section-single-core"]
+
+# embedded_hal implementation for stm32fxx
+# "stm32f411" feature brings the "device crate"
+# "usb_fs" enables OTG peripheral access
+# https://docs.rs/cortex-m-rt/latest/cortex_m_rt/#device
+[dependencies.stm32f4xx-hal]
+version = "0.20.0"
+features = ["stm32f411", "usb_fs"]
+
+# peripheral-access crate
+[dependencies.stm32f4]
+version = "0.15.1"
+
+[[bin]]
+name = "stm32f411x_scsi_bbb"
+
+[[bin]]
+name = "stm32f411x_ufi_bbb"

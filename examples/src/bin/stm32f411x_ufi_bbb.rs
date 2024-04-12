@@ -20,7 +20,7 @@ use usbd_storage::transport::TransportError;
 static mut USB_EP_MEMORY: [u32; 1024] = [0u32; 1024];
 /// Not necessarily `'static`. May reside in some special memory location
 static mut USB_TRANSPORT_BUF: MaybeUninit<[u8; 512]> = MaybeUninit::uninit();
-static FAT: &'static [u8] = include_bytes!("cat_fat12.img"); // part of fat12 fs with some data
+static FAT: &'static [u8] = include_bytes!("../../cat_fat12.img"); // part of fat12 fs with some data
 
 static mut STATE: State = State {
     storage_offset: 0,
