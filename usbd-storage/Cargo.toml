@@ -1,0 +1,34 @@
+[package]
+name = "usbd-storage"
+description = "USB Mass Storage class for usb-device."
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/apohrebniak/usbd-storage"
+homepage = "https://github.com/apohrebniak/usbd-storage"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+# USB stack
+[dependencies.usb-device]
+version = "0.3"
+
+# Logging
+[dependencies.defmt]
+version = "0.3"
+optional = true
+
+[dependencies.num_enum]
+version = "0.6"
+default-features = false
+
+[features]
+default = []
+defmt = ["dep:defmt", "usb-device/defmt"]
+bbb = []
+ufi = []
+scsi = []
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

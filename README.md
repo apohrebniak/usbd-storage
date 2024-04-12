@@ -24,9 +24,4 @@ This crate has a couple of opt-in features that all could be used independently.
 | `defmt` | Enable logging via [defmt](https://crates.io/crates/defmt) crate |
 
 # Examples
-Currently, examples are tested under macOS only.
-
-| Name | Description                                                                                                                      |
-| ---- |----------------------------------------------------------------------------------------------------------------------------------|
-| `stm32f411x_scsi_bbb.rs` | SCSI USB Mass Storage device (USB stick) based on Bulk Only Transport that stores data in RAM.                                   |
-| `stm32f411x_ufi_bbb.rs` | USB Floppy Drive. Emulates a USB attached external floppy disk drive with insearted read-only diskette and a dancing cat `.gif`. |
+See [examples](examples)
