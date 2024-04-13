@@ -313,8 +313,13 @@ where
         // return an error
 
         let max_packet_size = self.packet_size() as u32;
+
+        // if enough data is expected by data transfer or if there is no status.
+        // therefore, a full packet is not expected if data transfer is interrupted
+        // by failing a command
         let full_packet_expected =
             self.cbw.data_transfer_len >= max_packet_size && !self.status_present();
+
         let full_packet = self.buf.available_read() >= max_packet_size as usize;
         let full_packet_or_zero = full_packet || !full_packet_expected;
 
@@ -345,18 +350,22 @@ where
     }
 
     fn check_end_data_transfer(&mut self) -> BulkOnlyTransportResult<()> {
-        if self.status_present() {
-            match self.state {
-                State::DataTransferNoData => {
+        match self.state {
+            State::DataTransferNoData | State::DataTransferFromHost => {
+                // command is passed or failed. IO buffer is irrelevant. end data transfer
+                if let Some(_) = self.cs {
                     self.end_data_transfer()?;
                 }
-                State::DataTransferFromHost | State::DataTransferToHost
-                    if self.buf.available_read() == 0 =>
-                {
-                    self.end_data_transfer()?;
-                }
-                _ => {}
             }
+            State::DataTransferToHost => {
+                // command is passed or failed. empty IO buffer first. if empty, end data transfer
+                if let Some(_) = self.cs {
+                    if self.buf.available_read() == 0 {
+                        self.end_data_transfer()?;
+                    }
+                }
+            }
+            _ => {}
         }
 
         Ok(())

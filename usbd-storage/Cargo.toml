@@ -29,6 +29,10 @@ bbb = []
 ufi = []
 scsi = []
 
+[[test]]
+name = "scsi_bbb"
+required-features = ["scsi", "bbb"]
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
