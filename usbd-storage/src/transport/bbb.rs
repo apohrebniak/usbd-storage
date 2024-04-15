@@ -210,8 +210,9 @@ where
         Ok(self
             .buf
             .read(|buf| {
+                // fill 'dst' or however much is in 'buf'
                 let size = min(dst.len(), buf.len());
-                dst[..size].copy_from_slice(buf);
+                dst[..size].copy_from_slice(&buf[..size]);
                 Ok::<usize, ()>(size)
             })
             .unwrap())
@@ -613,5 +614,65 @@ impl CommandBlockWrapper {
             block_len: block_len as usize,
             block: value[11..].try_into().unwrap(), // ok, cause we checked a length
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::transport::bbb::BulkOnly;
+    use crate::transport::bbb::State::DataTransferFromHost;
+    use usb_device::bus::{PollResult, UsbBus, UsbBusAllocator};
+    use usb_device::class_prelude::{EndpointAddress, EndpointType};
+    use usb_device::{UsbDirection, UsbError};
+
+    struct DummyBus;
+
+    impl UsbBus for DummyBus {
+        fn alloc_ep(
+            &mut self,
+            _ep_dir: UsbDirection,
+            _ep_addr: Option<EndpointAddress>,
+            _ep_type: EndpointType,
+            _max_packet_size: u16,
+            _interval: u8,
+        ) -> usb_device::Result<EndpointAddress> {
+            Ok(EndpointAddress::from(0))
+        }
+
+        fn enable(&mut self) {}
+
+        fn reset(&self) {}
+        fn set_device_address(&self, _addr: u8) {}
+
+        fn write(&self, _ep_addr: EndpointAddress, _buf: &[u8]) -> usb_device::Result<usize> {
+            Err(UsbError::InvalidEndpoint)
+        }
+
+        fn read(&self, _ep_addr: EndpointAddress, _buf: &mut [u8]) -> usb_device::Result<usize> {
+            Err(UsbError::InvalidEndpoint)
+        }
+
+        fn set_stalled(&self, _ep_addr: EndpointAddress, _stalled: bool) {}
+        fn is_stalled(&self, _ep_addr: EndpointAddress) -> bool {
+            false
+        }
+        fn suspend(&self) {}
+        fn resume(&self) {}
+        fn poll(&self) -> PollResult {
+            PollResult::None
+        }
+    }
+
+    #[test]
+    fn should_read_data_into_small_buffer() {
+        const BUF_SIZE: usize = 512;
+        const N: usize = 123;
+
+        let alloc = UsbBusAllocator::new(DummyBus);
+        let mut bbb = BulkOnly::new(&alloc, 8, 0, vec![0u8; BUF_SIZE]).unwrap();
+        bbb.state = DataTransferFromHost;
+        bbb.buf.write([0xFFu8; BUF_SIZE].as_slice()); // fill the buffer
+
+        assert_eq!(N, bbb.read_data([0u8; N].as_mut_slice()).unwrap());
     }
 }
