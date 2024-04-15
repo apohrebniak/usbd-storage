@@ -25,7 +25,7 @@
 //! [Vendor Specific Transport]: crate::transport
 //! [Transport]: crate::transport::Transport
 
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 
 #[cfg(feature = "bbb")]
 pub(crate) mod buffer;
