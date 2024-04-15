@@ -45,6 +45,7 @@ const READ_FORMAT_CAPACITIES: u8 = 0x23;
 /// Refer to specifications (SPC,SAM,SBC,MMC,etc.)
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum ScsiCommand {
     Unknown,
 
