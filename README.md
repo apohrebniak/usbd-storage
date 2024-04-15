@@ -16,11 +16,11 @@ Currently, only `Bulk Only` transport is implemented. It is possible to implemen
 # Features
 This crate has a couple of opt-in features that all could be used independently.
 
-| Feature | Description                           |
-| ------- |---------------------------------------|
-| `bbb` | Include Bulk Only Transport           |
-| `scsi` | Include SCSI subclass                 |
-| `ufi` | Include USB Floppy Interface sublcass |
+| Feature | Description                                                      |
+|---------|------------------------------------------------------------------|
+| `bbb`   | Include Bulk Only Transport                                      |
+| `scsi`  | Include SCSI subclass                                            |
+| `ufi`   | Include USB Floppy Interface sublcass                            |
 | `defmt` | Enable logging via [defmt](https://crates.io/crates/defmt) crate |
 
 # Examples

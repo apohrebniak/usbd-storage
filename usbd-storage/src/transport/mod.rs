@@ -14,7 +14,7 @@ pub const TRANSPORT_VENDOR_SPECIFIC: u8 = 0xFF;
 
 /// USB Mass Storage transport.
 ///
-/// An implementation of this trait can be used as an underlying transport for subclasses
+/// An implementation of this trait can be used as underlying transport for subclasses
 /// defined in [subclass] module .
 ///
 /// [subclass]: crate::subclass

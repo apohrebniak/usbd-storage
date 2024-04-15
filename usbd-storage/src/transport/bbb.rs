@@ -100,7 +100,7 @@ where
     Bus: UsbBus,
     Buf: BorrowMut<[u8]>,
 {
-    /// Creates a Bulk Only Transport instance
+    /// Creates Bulk Only Transport instance
     ///
     /// # Arguments
     /// * `alloc` - [UsbBusAllocator]
@@ -612,7 +612,7 @@ impl CommandBlockWrapper {
             },
             lun: value[9] & 0b00001111,
             block_len: block_len as usize,
-            block: value[11..].try_into().unwrap(), // ok, cause we checked a length
+            block: value[11..].try_into().unwrap(), // ok, because we checked a length
         })
     }
 }

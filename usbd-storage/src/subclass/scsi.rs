@@ -165,7 +165,7 @@ pub struct Scsi<T: Transport> {
 /// [Bulk Only Transport]: crate::transport::bbb::BulkOnly
 #[cfg(feature = "bbb")]
 impl<'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>> Scsi<BulkOnly<'alloc, Bus, Buf>> {
-    /// Creates a SCSI over Bulk Only Transport instance
+    /// Creates an SCSI over Bulk Only Transport instance
     ///
     /// # Arguments
     /// * `alloc` - [UsbBusAllocator]
@@ -199,7 +199,7 @@ impl<'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>> Scsi<BulkOnly<'alloc, B
     /// Drive subclass in both directions
     ///
     /// The passed closure may or may not be called after each time this function is called.
-    /// Moreover, it may me called multiple times, if subclass is unable to proceed further.
+    /// Moreover, it may be called multiple times, if subclass is unable to proceed further.
     ///
     /// # Arguments
     /// * `callback` - closure, in which the SCSI command is processed
