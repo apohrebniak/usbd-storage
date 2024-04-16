@@ -6,6 +6,7 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/apohrebniak/usbd-storage"
 homepage = "https://github.com/apohrebniak/usbd-storage"
+publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
