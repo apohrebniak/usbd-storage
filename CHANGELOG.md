@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release.
 
 [unreleased]: https://github.com/apohrebniak/usbd-storage/compare/v0.1.0...HEAD
-[1.0.0]: https://github.com/apohrebniak/usbd-storage/releases/tag/v0.3.0
+[1.0.0]: https://github.com/apohrebniak/usbd-storage/releases/tag/v1.0.0
 [0.2.0]: https://github.com/apohrebniak/usbd-storage/releases/tag/v0.2.0
 [0.1.1]: https://github.com/apohrebniak/usbd-storage/releases/tag/v0.1.1
 [0.1.0]: https://github.com/apohrebniak/usbd-storage/releases/tag/v0.1.0
