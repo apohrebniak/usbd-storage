@@ -47,7 +47,10 @@ const READ_FORMAT_CAPACITIES: u8 = 0x23;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum ScsiCommand {
-    Unknown,
+    /// Note: When debugging it's shown as decimal but all commands are usually documented in hex.
+    Unknown {
+        cmd: u8,
+    },
 
     /* SPC */
     Inquiry {
@@ -151,7 +154,7 @@ fn parse_cb(cb: &[u8]) -> ScsiCommand {
         READ_FORMAT_CAPACITIES => ScsiCommand::ReadFormatCapacities {
             alloc_len: u16::from_be_bytes([cb[7], cb[8]]),
         },
-        _ => ScsiCommand::Unknown,
+        cmd => ScsiCommand::Unknown { cmd },
     }
 }
 
