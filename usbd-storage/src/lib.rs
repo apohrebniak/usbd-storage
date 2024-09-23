@@ -14,7 +14,7 @@
 //! | ------- |---------------------------------------|
 //! | `bbb` | Include Bulk Only Transport           |
 //! | `scsi` | Include SCSI subclass                 |
-//! | `ufi` | Include USB Floppy Interface sublcass |
+//! | `ufi` | Include USB Floppy Interface subclass |
 //! | `defmt` | Enable logging via [defmt](https://crates.io/crates/defmt) crate |
 //!
 //! [usb-device]: https://crates.io/crates/usb-device
