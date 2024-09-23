@@ -23,11 +23,12 @@ version = "0.6"
 default-features = false
 
 [features]
-default = []
+default = ["u64"]
 defmt = ["dep:defmt", "usb-device/defmt"]
 bbb = []
 ufi = []
 scsi = []
+u64 = []
 
 [[test]]
 name = "scsi_bbb"
