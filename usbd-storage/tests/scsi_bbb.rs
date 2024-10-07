@@ -1,6 +1,6 @@
 mod common;
 
-use crate::common::bbb::{CommandStatus, DataDirection, DummyUsbBus, CBW, CSW};
+use crate::common::bbb::{Cbw, CommandStatus, Csw, DataDirection, DummyUsbBus};
 use crate::common::scsi::cmd_into_bytes;
 use crate::common::Step;
 use std::time::Duration;
@@ -16,7 +16,7 @@ const TIMEOUT: Duration = Duration::from_secs(1);
 fn should_fail_reading_data_from_host_with_bytes_read() {
     run_on_scsi_bbb_bus_timed! { TIMEOUT, [
         Step::HostIo(|bus: &DummyUsbBus| {
-            let cbw = CBW {
+            let cbw = Cbw {
                 data_transfer_len: 512,
                 direction: DataDirection::Out,
                 block: cmd_into_bytes(ScsiCommand::Write { lba: 0, len: 1 }),
@@ -32,7 +32,7 @@ fn should_fail_reading_data_from_host_with_bytes_read() {
         ),
         Step::DevIo,
         Step::HostIo(|bus: &DummyUsbBus| {
-            let expected_csw = CSW {
+            let expected_csw = Csw {
                 data_transfer_len: 0, // read all
                 status: CommandStatus::Failed,
             };
@@ -45,7 +45,7 @@ fn should_fail_reading_data_from_host_with_bytes_read() {
 fn should_fail_reading_data_from_host_without_bytes_read() {
     run_on_scsi_bbb_bus_timed! { TIMEOUT, [
         Step::HostIo(|bus: &DummyUsbBus| {
-            let cbw = CBW {
+            let cbw = Cbw {
                 data_transfer_len: 512,
                 direction: DataDirection::Out,
                 block: cmd_into_bytes(ScsiCommand::Write { lba: 0, len: 1 }),
@@ -60,7 +60,7 @@ fn should_fail_reading_data_from_host_without_bytes_read() {
         ),
         Step::DevIo,
         Step::HostIo(|bus: &DummyUsbBus| {
-            let expected_csw = CSW {
+            let expected_csw = Csw {
                 data_transfer_len: 512,
                 status: CommandStatus::PhaseError,
             };
@@ -73,7 +73,7 @@ fn should_fail_reading_data_from_host_without_bytes_read() {
 fn should_pass_reading_data_from_host_with_bytes_read() {
     run_on_scsi_bbb_bus_timed! { TIMEOUT, [
         Step::HostIo(|bus: &DummyUsbBus| {
-            let cbw = CBW {
+            let cbw = Cbw {
                 data_transfer_len: 512,
                 direction: DataDirection::Out,
                 block: cmd_into_bytes(ScsiCommand::Write { lba: 0, len: 1 }),
@@ -89,7 +89,7 @@ fn should_pass_reading_data_from_host_with_bytes_read() {
         ),
         Step::DevIo,
         Step::HostIo(|bus: &DummyUsbBus| {
-            let expected_csw = CSW {
+            let expected_csw = Csw {
                 data_transfer_len: 0, // read all
                 status: CommandStatus::Passed,
             };
@@ -102,7 +102,7 @@ fn should_pass_reading_data_from_host_with_bytes_read() {
 fn should_phase_fail_reading_data_from_host_trying_to_pass_without_bytes_read() {
     run_on_scsi_bbb_bus_timed! { TIMEOUT, [
         Step::HostIo(|bus: &DummyUsbBus| {
-            let cbw = CBW {
+            let cbw = Cbw {
                 data_transfer_len: 512,
                 direction: DataDirection::Out,
                 block: cmd_into_bytes(ScsiCommand::Write { lba: 0, len: 1 }),
@@ -117,7 +117,7 @@ fn should_phase_fail_reading_data_from_host_trying_to_pass_without_bytes_read() 
         ),
         Step::DevIo,
         Step::HostIo(|bus: &DummyUsbBus| {
-            let expected_csw = CSW {
+            let expected_csw = Csw {
                 data_transfer_len: 512,
                 status: CommandStatus::PhaseError,
             };
@@ -130,7 +130,7 @@ fn should_phase_fail_reading_data_from_host_trying_to_pass_without_bytes_read() 
 fn should_fail_in_the_middle_writing_data_to_host() {
     run_on_scsi_bbb_bus_timed! { TIMEOUT, [
         Step::HostIo(|bus: &DummyUsbBus| {
-            let cbw = CBW {
+            let cbw = Cbw {
                 data_transfer_len: 512,
                 direction: DataDirection::In,
                 block: cmd_into_bytes(ScsiCommand::Read { lba: 0, len: 1 }),
@@ -146,7 +146,7 @@ fn should_fail_in_the_middle_writing_data_to_host() {
         Step::DevIo,
         Step::HostIo(|bus: &DummyUsbBus| {
             assert_eq!(256, bus.read_n_bytes(256).len()); // skip data bytes
-            let expected_csw = CSW {
+            let expected_csw = Csw {
                 data_transfer_len: 256,
                 status: CommandStatus::Failed,
             };

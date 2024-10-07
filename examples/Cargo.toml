@@ -53,3 +53,4 @@ name = "stm32f411x_scsi_bbb"
 
 [[bin]]
 name = "stm32f411x_ufi_bbb"
+

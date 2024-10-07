@@ -214,7 +214,7 @@ impl<'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>> Ufi<BulkOnly<'alloc, Bu
     /// * `packet_size` - Maximum USB packet size. Allowed values: 8,16,32,64
     /// * `max_lun` - The max index of the Logical Unit
     /// * `buf` - The underlying IO buffer. It is **required** to fit at least a `CBW` and/or a single
-    /// packet. It is **recommended** that buffer fits at least one sector
+    ///   packet. It is **recommended** that buffer fits at least one sector
     ///
     /// # Errors
     /// * [InvalidMaxLun]

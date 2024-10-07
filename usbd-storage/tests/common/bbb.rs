@@ -20,13 +20,13 @@ pub enum DataDirection {
     In,
     NotExpected,
 }
-pub struct CBW {
+pub struct Cbw {
     pub(crate) data_transfer_len: u32,
     pub(crate) direction: DataDirection,
     pub(crate) block: Vec<u8>,
 }
 
-impl CBW {
+impl Cbw {
     pub fn into_bytes(self) -> Vec<u8> {
         const CBW_SIGNATURE_LE: [u8; 4] = 0x43425355u32.to_le_bytes();
 
@@ -54,12 +54,12 @@ impl CBW {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct CSW {
+pub struct Csw {
     pub(crate) data_transfer_len: u32,
     pub(crate) status: CommandStatus,
 }
 
-impl CSW {
+impl Csw {
     pub fn from_bytes(bytes: &[u8]) -> Self {
         assert_eq!(CSW_LEN as usize, bytes.len());
 
@@ -136,20 +136,20 @@ impl DummyUsbBus {
     }
 
     /// Write Command Block Wrapper as if it was written by a USB host
-    pub fn write_cbw(&self, cbw: CBW) {
+    pub fn write_cbw(&self, cbw: Cbw) {
         let mut lock = self.inner.lock().unwrap();
         let ep = lock.ep_out.as_mut().unwrap();
         ep.write_bytes(cbw.into_bytes().as_slice());
     }
 
     /// Read Command Status as if it was read by a USB host
-    pub fn read_cs(&self) -> Option<CSW> {
+    pub fn read_cs(&self) -> Option<Csw> {
         let mut bytes = vec![];
         while bytes.len() < CSW_LEN as usize {
             let mut packet = self.read_packet()?;
             bytes.append(&mut packet);
         }
-        Some(CSW::from_bytes(bytes.as_slice()))
+        Some(Csw::from_bytes(bytes.as_slice()))
     }
 
     /// Write some data as if it was written by a USB host during Host to Device data transfer
@@ -298,7 +298,7 @@ impl UsbBus for DummyUsbBus {
         match ep.read_packet() {
             Some(packet) => {
                 let n = packet.len();
-                buf[..n].copy_from_slice(&packet.as_slice());
+                buf[..n].copy_from_slice(packet.as_slice());
                 Ok(n)
             }
             None => Err(UsbError::WouldBlock),
@@ -316,7 +316,7 @@ impl UsbBus for DummyUsbBus {
 
         if let Some(ep) = lock.ep_out.as_mut() {
             if ep.addr == ep_addr {
-                return ep.stalled = stalled;
+                ep.stalled = stalled
             }
         }
     }

@@ -107,7 +107,7 @@ where
     /// * `packet_size` - Maximum USB packet size. Allowed values: 8,16,32,64
     /// * `max_lun` - The max index of the Logical Unit
     /// * `buf` - The underlying IO buffer. It is **required** to fit at least a `CBW` and/or a single
-    /// packet. It is **recommended** that buffer fits at least one `LBA` size
+    ///   packet. It is **recommended** that buffer fits at least one `LBA` size
     ///
     /// # Errors
     /// * [InvalidMaxLun]
@@ -353,16 +353,14 @@ where
         match self.state {
             State::DataTransferNoData | State::DataTransferFromHost => {
                 // command is passed or failed. IO buffer is irrelevant. end data transfer
-                if let Some(_) = self.cs {
+                if self.cs.is_some() {
                     self.end_data_transfer()?;
                 }
             }
             State::DataTransferToHost => {
                 // command is passed or failed. empty IO buffer first. if empty, end data transfer
-                if let Some(_) = self.cs {
-                    if self.buf.available_read() == 0 {
-                        self.end_data_transfer()?;
-                    }
+                if self.cs.is_some() && self.buf.available_read() == 0 {
+                    self.end_data_transfer()?;
                 }
             }
             _ => {}
