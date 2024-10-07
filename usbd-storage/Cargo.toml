@@ -25,6 +25,7 @@ default-features = false
 [features]
 default = []
 defmt = ["dep:defmt", "usb-device/defmt"]
+defmt-log = ["defmt"]
 bbb = []
 ufi = []
 scsi = []
