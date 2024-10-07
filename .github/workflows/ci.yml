@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+    tags-ignore:
+      - '**'
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-Dwarnings"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain:
+          - stable
+          - beta
+        target:
+          - thumbv7em-none-eabihf
+      fail-fast: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain and tools
+        run: |
+          rustup update ${{matrix.toolchain}}
+          rustup default ${{matrix.toolchain}}
+          rustup target add ${{matrix.target}}
+          cargo install cargo-all-features
+      - name: cargo-fmt
+        if: ${{matrix.toolchain == 'stable'}}
+        run: cargo fmt --check --verbose
+      - name: cargo-clippy
+        if: ${{matrix.toolchain == 'stable'}}
+        run:  cargo clippy -p usbd-storage --target ${{matrix.target}} --all-features --verbose
+      - name: cargo-test
+        run: cargo test -p usbd-storage --test '**' --all-features
+      - name: cargo-build
+        run: cargo build -p usbd-storage --target ${{matrix.target}} --verbose
+      - name: cargo-build-all-features
+        run: cargo build-all-features -p usbd-storage --target ${{matrix.target}} --verbose
+
