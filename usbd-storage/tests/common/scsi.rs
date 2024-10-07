@@ -91,6 +91,7 @@ pub fn cmd_into_bytes(cmd: ScsiCommand) -> Vec<u8> {
             bytes.extend_from_slice([0; 6].as_slice());
             bytes.extend_from_slice(alloc_len.to_be_bytes().as_slice());
         }
+        c => panic!("Untested {c:?}!"),
     }
     bytes
 }
