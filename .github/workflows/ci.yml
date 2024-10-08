@@ -43,4 +43,6 @@ jobs:
         run: cargo build -p usbd-storage --target ${{matrix.target}} --verbose
       - name: cargo-build-all-features
         run: cargo build-all-features -p usbd-storage --target ${{matrix.target}} --verbose
+      - name: cargo-build examples
+        run: cargo build -p examples --target ${{matrix.target}} --verbose
 
