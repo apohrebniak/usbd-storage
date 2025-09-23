@@ -2,5 +2,6 @@
 members = [
     "usbd-storage",
     "examples",
+    "examples-rp2040",
 ]
 resolver = "2"
