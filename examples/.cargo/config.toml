@@ -2,5 +2,5 @@
 target = "thumbv7em-none-eabihf"
 
 [target.thumbv7em-none-eabihf]
-runner = "probe-run --chip STM32F411RETx"
+runner = "probe-rs run --chip STM32F411RETx"
 
