@@ -3,10 +3,11 @@ name: CI
 on:
   push:
     branches:
-      - '**'
+      - master
     tags-ignore:
       - '**'
   pull_request:
+    types: [opened, synchronize, reopened]
 
 env:
   CARGO_TERM_COLOR: always
