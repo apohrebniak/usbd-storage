@@ -30,7 +30,7 @@ jobs:
           rustup update ${{matrix.toolchain}}
           rustup default ${{matrix.toolchain}}
           rustup target add ${{matrix.target}}
-          cargo install cargo-all-features
+          cargo install --locked --version 1.11.0 cargo-all-features
       - name: cargo-fmt
         if: ${{matrix.toolchain == 'stable'}}
         run: cargo fmt --check --verbose
@@ -42,7 +42,7 @@ jobs:
       - name: cargo-build
         run: cargo build -p usbd-storage --target ${{matrix.target}} --verbose
       - name: cargo-build-all-features
-        run: cargo build-all-features -p usbd-storage --target ${{matrix.target}} --verbose
+        run: cargo all-features build -p usbd-storage --target ${{matrix.target}} --verbose
       - name: cargo-build examples
         run: cargo build -p examples --target ${{matrix.target}} --verbose
 
