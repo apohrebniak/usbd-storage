@@ -6,6 +6,9 @@ use core::ptr::addr_of_mut;
 use defmt_rtt as _;
 use stm32f4xx_hal::gpio::alt::otg_fs::{Dm, Dp};
 
+use core::cell::RefCell;
+use critical_section::Mutex;
+
 use stm32f4xx_hal::gpio::GpioExt;
 use stm32f4xx_hal::otg_fs::{UsbBus, USB};
 use stm32f4xx_hal::pac;
@@ -21,14 +24,15 @@ use usbd_storage::transport::TransportError;
 static mut USB_EP_MEMORY: [u32; 1024] = [0u32; 1024];
 /// Not necessarily `'static`. May reside in some special memory location
 static mut USB_TRANSPORT_BUF: MaybeUninit<[u8; 512]> = MaybeUninit::uninit();
+
 static FAT: &[u8] = include_bytes!("../../cat_fat12.img"); // part of fat12 fs with some data
 
-static mut STATE: State = State {
+static STATE: Mutex<RefCell<State>> = Mutex::new(RefCell::new(State {
     storage_offset: 0,
     sense_key: None,
     sense_key_code: None,
     sense_qualifier: None,
-};
+}));
 
 const BLOCK_SIZE: usize = 512;
 const USB_PACKET_SIZE: u16 = 64; // 8,16,32,64
@@ -99,6 +103,7 @@ fn main() -> ! {
 
     let usb_bus = UsbBus::new(usb_peripheral, unsafe { &mut *addr_of_mut!(USB_EP_MEMORY) });
     let mut ufi = usbd_storage::subclass::ufi::Ufi::new(&usb_bus, USB_PACKET_SIZE, unsafe {
+        #[allow(static_mut_refs)]
         USB_TRANSPORT_BUF.assume_init_mut().as_mut_slice()
     })
     .unwrap();
@@ -121,9 +126,9 @@ fn main() -> ! {
 
         // clear state if just configured or reset
         if matches!(usb_device.state(), UsbDeviceState::Default) {
-            unsafe {
-                STATE.reset();
-            };
+            critical_section::with(|cs| {
+                STATE.borrow_ref_mut(cs).reset();
+            })
         }
 
         let _ = ufi.poll(|command| {
@@ -158,11 +163,13 @@ fn process_command(
             command.try_write_data_all(&[0x00, 0x00, 0x0b, 0x3f, 0x00, 0x00, 0x02, 0x00])?;
             command.pass();
         }
-        UfiCommand::RequestSense { .. } => unsafe {
+        UfiCommand::RequestSense { .. } => critical_section::with(|cs| {
+            let mut state = STATE.borrow_ref_mut(cs);
+
             command.try_write_data_all(&[
                 0x70, // error code
                 0x00,
-                STATE.sense_key.unwrap_or(0),
+                state.sense_key.unwrap_or(0),
                 0x00,
                 0x00,
                 0x00,
@@ -172,16 +179,18 @@ fn process_command(
                 0x00,
                 0x00,
                 0x00,
-                STATE.sense_key_code.unwrap_or(0),
-                STATE.sense_qualifier.unwrap_or(0),
+                state.sense_key_code.unwrap_or(0),
+                state.sense_qualifier.unwrap_or(0),
                 0x00,
                 0x00,
                 0x00,
                 0x00,
             ])?;
-            STATE.reset();
+
+            state.reset();
             command.pass();
-        },
+            Ok(())
+        })?,
         UfiCommand::ModeSense { .. } => {
             /* Read Only */
             command.try_write_data_all(&[0x00, 0x46, 0x02, 0x80, 0x00, 0x00, 0x00, 0x00])?;
@@ -194,23 +203,26 @@ fn process_command(
         UfiCommand::Write { .. } => {
             command.pass();
         }
-        UfiCommand::Read { lba, len } => unsafe {
+        UfiCommand::Read { lba, len } => critical_section::with(|cs| {
             let lba = lba as u32;
             let len = len as u32;
-            if STATE.storage_offset != len as usize * BLOCK_SIZE {
+
+            let mut state = STATE.borrow_ref_mut(cs);
+
+            if state.storage_offset != len as usize * BLOCK_SIZE {
                 const DUMP_MAX_LBA: u32 = 0xCE;
                 if lba < DUMP_MAX_LBA {
                     /* requested data from dump */
-                    let start = (BLOCK_SIZE * lba as usize) + STATE.storage_offset;
+                    let start = (BLOCK_SIZE * lba as usize) + state.storage_offset;
                     let end = (BLOCK_SIZE * lba as usize) + (BLOCK_SIZE as usize * len as usize);
                     defmt::info!("Data transfer >>>>>>>> [{}..{}]", start, end);
                     let count = command.write_data(&FAT[start..end])?;
-                    STATE.storage_offset += count;
+                    state.storage_offset += count;
                 } else {
                     /* fill with 0xF6 */
                     loop {
                         let count = command.write_data(&[0xF6; BLOCK_SIZE as usize])?;
-                        STATE.storage_offset += count;
+                        state.storage_offset += count;
                         if count == 0 {
                             break;
                         }
@@ -218,16 +230,21 @@ fn process_command(
                 }
             } else {
                 command.pass();
-                STATE.storage_offset = 0;
+                state.storage_offset = 0;
             }
-        },
+
+            Ok(())
+        })?,
         ref unknown_ufi_kind => {
             defmt::error!("Unknown UFI command: {}", unknown_ufi_kind);
-            unsafe {
-                STATE.sense_key.replace(0x05); // illegal request
-                STATE.sense_key_code.replace(0x20); // Invalid command operation
-                STATE.sense_qualifier.replace(0x00); // Invalid command operation
-            }
+
+            critical_section::with(|cs| {
+                let mut state = STATE.borrow_ref_mut(cs);
+                state.sense_key.replace(0x05); // illegal request
+                state.sense_key_code.replace(0x20); // Invalid command operation
+                state.sense_qualifier.replace(0x00); // Invalid command operation
+            });
+
             command.fail();
         }
     }
