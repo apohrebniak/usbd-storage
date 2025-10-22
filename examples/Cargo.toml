@@ -48,6 +48,9 @@ features = ["stm32f411", "usb_fs"]
 [dependencies.stm32f4]
 version = "0.15.1"
 
+[dependencies.critical-section]
+version = "1.2.0"
+
 [[bin]]
 name = "stm32f411x_scsi_bbb"
 

@@ -1,8 +1,10 @@
 #![no_std]
 #![no_main]
 
+use core::cell::RefCell;
 use core::mem::MaybeUninit;
 use core::ptr::addr_of_mut;
+use critical_section::Mutex;
 use defmt_rtt as _;
 use stm32f4xx_hal::gpio::alt::otg_fs::{Dm, Dp};
 
@@ -20,14 +22,16 @@ use usbd_storage::transport::TransportError;
 static mut USB_EP_MEMORY: [u32; 1024] = [0u32; 1024];
 /// Not necessarily `'static`. May reside in some special memory location
 static mut USB_TRANSPORT_BUF: MaybeUninit<[u8; 512]> = MaybeUninit::uninit();
-static mut STORAGE: [u8; (BLOCKS * BLOCK_SIZE) as usize] = [0u8; (BLOCK_SIZE * BLOCKS) as usize];
 
-static mut STATE: State = State {
+static STORAGE: Mutex<RefCell<[u8; (BLOCKS * BLOCK_SIZE) as usize]>> =
+    Mutex::new(RefCell::new([0u8; (BLOCK_SIZE * BLOCKS) as usize]));
+
+static STATE: Mutex<RefCell<State>> = Mutex::new(RefCell::new(State {
     storage_offset: 0,
     sense_key: None,
     sense_key_code: None,
     sense_qualifier: None,
-};
+}));
 
 const BLOCK_SIZE: u32 = 512;
 const BLOCKS: u32 = 200;
@@ -102,6 +106,7 @@ fn main() -> ! {
     let usb_bus = UsbBus::new(usb_peripheral, unsafe { &mut *addr_of_mut!(USB_EP_MEMORY) });
     let mut scsi =
         usbd_storage::subclass::scsi::Scsi::new(&usb_bus, USB_PACKET_SIZE, MAX_LUN, unsafe {
+            #[allow(static_mut_refs)]
             USB_TRANSPORT_BUF.assume_init_mut().as_mut_slice()
         })
         .unwrap();
@@ -124,9 +129,9 @@ fn main() -> ! {
 
         // clear state if just configured or reset
         if matches!(usb_device.state(), UsbDeviceState::Default) {
-            unsafe {
-                STATE.reset();
-            };
+            critical_section::with(|cs| {
+                STATE.borrow_ref_mut(cs).reset();
+            })
         }
 
         let _ = scsi.poll(|command| {
@@ -164,11 +169,13 @@ fn process_command(
             ])?;
             command.pass();
         }
-        ScsiCommand::RequestSense { .. } => unsafe {
+        ScsiCommand::RequestSense { .. } => critical_section::with(|cs| {
+            let mut state = STATE.borrow_ref_mut(cs);
+
             command.try_write_data_all(&[
                 0x70,                         // RESPONSE CODE. Set to 70h for information on current errors
                 0x00,                         // obsolete
-                STATE.sense_key.unwrap_or(0), // Bits 3..0: SENSE KEY. Contains information describing the error.
+                state.sense_key.unwrap_or(0), // Bits 3..0: SENSE KEY. Contains information describing the error.
                 0x00,
                 0x00,
                 0x00,
@@ -178,16 +185,17 @@ fn process_command(
                 0x00,
                 0x00,
                 0x00,                               // COMMAND-SPECIFIC INFORMATION
-                STATE.sense_key_code.unwrap_or(0),  // ASC
-                STATE.sense_qualifier.unwrap_or(0), // ASCQ
+                state.sense_key_code.unwrap_or(0),  // ASC
+                state.sense_qualifier.unwrap_or(0), // ASCQ
                 0x00,
                 0x00,
                 0x00,
                 0x00,
             ])?;
-            STATE.reset();
+            state.reset();
             command.pass();
-        },
+            Ok(())
+        })?,
         ScsiCommand::ReadCapacity10 { .. } => {
             let mut data = [0u8; 8];
             let _ = &mut data[0..4].copy_from_slice(&u32::to_be_bytes(BLOCKS - 1));
@@ -217,43 +225,51 @@ fn process_command(
             command.try_write_data_all(&data)?;
             command.pass();
         }
-        ScsiCommand::Read { lba, len } => unsafe {
+        ScsiCommand::Read { lba, len } => critical_section::with(|cs| {
             let lba = lba as u32;
             let len = len as u32;
-            if STATE.storage_offset != (len * BLOCK_SIZE) as usize {
-                let start = (BLOCK_SIZE * lba) as usize + STATE.storage_offset;
+            let mut state = STATE.borrow_ref_mut(cs);
+
+            if state.storage_offset != (len * BLOCK_SIZE) as usize {
+                let start = (BLOCK_SIZE * lba) as usize + state.storage_offset;
                 let end = (BLOCK_SIZE * lba) as usize + (BLOCK_SIZE * len) as usize;
 
                 // Uncomment this in order to push data in chunks smaller than a USB packet.
                 // let end = min(start + USB_PACKET_SIZE as usize - 1, end);
 
                 defmt::info!("Data transfer >>>>>>>> [{}..{}]", start, end);
-                let count = command.write_data(&mut STORAGE[start..end])?;
-                STATE.storage_offset += count;
+                let count = command.write_data(&mut STORAGE.borrow_ref_mut(cs)[start..end])?;
+                state.storage_offset += count;
             } else {
                 command.pass();
-                STATE.storage_offset = 0;
+                state.storage_offset = 0;
             }
-        },
-        ScsiCommand::Write { lba, len } => unsafe {
+
+            Ok(())
+        })?,
+        ScsiCommand::Write { lba, len } => critical_section::with(|cs| {
             let lba = lba as u32;
             let len = len as u32;
-            if STATE.storage_offset != (len * BLOCK_SIZE) as usize {
-                let start = (BLOCK_SIZE * lba) as usize + STATE.storage_offset;
+            let mut state = STATE.borrow_ref_mut(cs);
+
+            if state.storage_offset != (len * BLOCK_SIZE) as usize {
+                let start = (BLOCK_SIZE * lba) as usize + state.storage_offset;
                 let end = (BLOCK_SIZE * lba) as usize + (BLOCK_SIZE * len) as usize;
                 defmt::info!("Data transfer <<<<<<<< [{}..{}]", start, end);
-                let count = command.read_data(&mut STORAGE[start..end])?;
-                STATE.storage_offset += count;
+                let count = command.read_data(&mut STORAGE.borrow_ref_mut(cs)[start..end])?;
+                state.storage_offset += count;
 
-                if STATE.storage_offset == (len * BLOCK_SIZE) as usize {
+                if state.storage_offset == (len * BLOCK_SIZE) as usize {
                     command.pass();
-                    STATE.storage_offset = 0;
+                    state.storage_offset = 0;
                 }
             } else {
                 command.pass();
-                STATE.storage_offset = 0;
+                state.storage_offset = 0;
             }
-        },
+
+            Ok(())
+        })?,
         ScsiCommand::ModeSense6 { .. } => {
             command.try_write_data_all(&[
                 0x03, // number of bytes that follow
@@ -269,12 +285,16 @@ fn process_command(
         }
         ref unknown_scsi_kind => {
             defmt::error!("Unknown SCSI command: {}", unknown_scsi_kind);
-            unsafe {
-                STATE.sense_key.replace(0x05); // illegal request Sense Key
-                STATE.sense_key_code.replace(0x20); // Invalid command operation ASC
-                STATE.sense_qualifier.replace(0x00); // Invalid command operation ASCQ
-            }
-            command.fail();
+            critical_section::with(|cs| {
+                let mut state = STATE.borrow_ref_mut(cs);
+                state.sense_key.replace(0x05); // illegal request Sense Key
+                state.sense_key_code.replace(0x20); // Invalid command operation ASC
+                state.sense_qualifier.replace(0x00); // Invalid command operation ASCQ
+
+                command.fail();
+
+                Ok(())
+            })?
         }
     }
 
