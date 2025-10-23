@@ -15,7 +15,7 @@ version = "0.3"
 
 # Logging
 [dependencies.defmt]
-version = "0.3"
+version = "1"
 optional = true
 
 [dependencies.num_enum]
