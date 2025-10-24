@@ -146,7 +146,7 @@ fn main() -> ! {
 fn process_command(
     mut command: Command<ScsiCommand, Scsi<BulkOnly<UsbBus<USB>, &mut [u8]>>>,
 ) -> Result<(), TransportError<BulkOnlyError>> {
-    defmt::info!("Handling: {}", command.kind);
+    defmt::info!("Handling: {:#X}", command.kind);
 
     match command.kind {
         ScsiCommand::TestUnitReady { .. } => {
@@ -284,7 +284,7 @@ fn process_command(
             command.pass();
         }
         ref unknown_scsi_kind => {
-            defmt::error!("Unknown SCSI command: {}", unknown_scsi_kind);
+            defmt::error!("Unknown SCSI command: {:#X}", unknown_scsi_kind);
             critical_section::with(|cs| {
                 let mut state = STATE.borrow_ref_mut(cs);
                 state.sense_key.replace(0x05); // illegal request Sense Key
