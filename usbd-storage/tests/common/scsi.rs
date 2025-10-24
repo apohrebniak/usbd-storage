@@ -15,7 +15,7 @@ const READ_FORMAT_CAPACITIES: u8 = 0x23;
 pub fn cmd_into_bytes(cmd: ScsiCommand) -> Vec<u8> {
     let mut bytes = vec![];
     match cmd {
-        ScsiCommand::Unknown => {
+        ScsiCommand::Unknown { .. } => {
             bytes.push(UNKNOWN);
         }
         ScsiCommand::Inquiry {

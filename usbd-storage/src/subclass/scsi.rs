@@ -2,7 +2,7 @@
 
 use crate::transport::Transport;
 use crate::CLASS_MASS_STORAGE;
-use core::fmt::{Debug, Formatter};
+use core::fmt::Debug;
 use num_enum::TryFromPrimitive;
 use usb_device::bus::InterfaceNumber;
 use usb_device::bus::UsbBus;
@@ -41,24 +41,6 @@ const WRITE_10: u8 = 0x2A;
 /* MMC */
 const READ_FORMAT_CAPACITIES: u8 = 0x23;
 
-/// A u8, when printed shown as hex
-#[repr(transparent)]
-#[derive(Copy, Clone)]
-pub struct U8Hex(pub u8);
-
-impl Debug for U8Hex {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        write!(f, "0x{:02x}", self.0)
-    }
-}
-
-#[cfg(feature = "defmt")]
-impl defmt::Format for U8Hex {
-    fn format(&self, fmt: defmt::Formatter) {
-        defmt::write!(fmt, "0x{:02x}", self.0)
-    }
-}
-
 /// SCSI command
 ///
 /// Refer to specifications (SPC,SAM,SBC,MMC,etc.)
@@ -67,7 +49,7 @@ impl defmt::Format for U8Hex {
 #[non_exhaustive]
 pub enum ScsiCommand {
     Unknown {
-        cmd: U8Hex,
+        cmd: u8,
     },
 
     /* SPC */
@@ -172,7 +154,7 @@ fn parse_cb(cb: &[u8]) -> ScsiCommand {
         READ_FORMAT_CAPACITIES => ScsiCommand::ReadFormatCapacities {
             alloc_len: u16::from_be_bytes([cb[7], cb[8]]),
         },
-        cmd => ScsiCommand::Unknown { cmd: U8Hex(cmd) },
+        cmd => ScsiCommand::Unknown { cmd },
     }
 }
 

@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Store a number of unknown command (https://github.com/apohrebniak/usbd-storage/pull/7)
 - Upgrade defmt to v.1.0.0 (https://github.com/apohrebniak/usbd-storage/pull/14)
 
 ## [1.0.0] - 2024-04-16
