@@ -23,6 +23,7 @@ jobs:
           - beta
         target:
           - thumbv7em-none-eabihf
+          - thumbv6m-none-eabi
       fail-fast: true
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +45,10 @@ jobs:
         run: cargo build -p usbd-storage --target ${{matrix.target}} --verbose
       - name: cargo-build-all-features
         run: cargo all-features build -p usbd-storage --target ${{matrix.target}} --verbose
-      - name: cargo-build examples
-        run: cargo build -p examples --target ${{matrix.target}} --verbose
+      - name: cargo-build examples/stm32
+        if: ${{matrix.target == 'thumbv7em-none-eabihf'}}
+        run: cargo build -p stm32 --target ${{matrix.target}} --verbose
+      - name: cargo-build examples/rp2040
+        if: ${{matrix.target == 'thumbv6m-none-eabi'}}
+        run: cargo build -p rp2040 --target ${{matrix.target}} --verbose
 

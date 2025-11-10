@@ -1,8 +1,9 @@
 #![no_std]
 #![no_main]
 
+use core::cell::RefCell;
 use core::mem::MaybeUninit;
-use core::slice::from_raw_parts;
+use critical_section::Mutex;
 use defmt_rtt as _;
 use embedded_hal::digital::OutputPin;
 use rp2040_hal::pac;
@@ -19,16 +20,17 @@ static mut USB_TRANSPORT_BUF: MaybeUninit<[u8; BLOCK_SIZE as usize]> = MaybeUnin
 
 #[link_section = ".filesystem"]
 #[used]
-pub static FILESYSTEM: [u8; 32768] = *include_bytes!("../../partial_demo_1m_fat_image.img");
+pub static FILESYSTEM: [u8; (BLOCK_SIZE * BLOCKS) as usize] = [0u8; (BLOCK_SIZE * BLOCKS) as usize];
 
-static mut WRITE_BUFFER: MaybeUninit<[u8; BLOCK_SIZE as usize]> = MaybeUninit::uninit();
+static WRITE_BUFFER: Mutex<RefCell<[u8; BLOCK_SIZE as usize]>> =
+    Mutex::new(RefCell::new([0u8; BLOCK_SIZE as usize]));
 
-static mut STATE: State = State {
+static STATE: Mutex<RefCell<State>> = Mutex::new(RefCell::new(State {
     storage_offset: 0,
     sense_key: None,
     sense_key_code: None,
     sense_qualifier: None,
-};
+}));
 
 const BLOCK_SIZE: u32 = 4096;
 const BLOCKS: u32 = 256;
@@ -69,16 +71,8 @@ impl State {
     }
 }
 
-/// Entry point to our bare-metal application.
-///
-/// The `#[rp2040_hal::entry]` macro ensures the Cortex-M start-up code calls this function
-/// as soon as all global variables and the spinlock are initialised.
-///
-/// The function configures the RP2040 peripherals, then toggles a GPIO pin in
-/// an infinite loop. If there is an LED connected to that pin, it will blink.
 #[rp2040_hal::entry]
 fn main() -> ! {
-    // Grab our singleton objects
     let mut pac = pac::Peripherals::take().unwrap();
 
     // Set up the watchdog driver - needed by the clock setup code
@@ -123,7 +117,11 @@ fn main() -> ! {
         &usb_bus,
         USB_PACKET_SIZE,
         MAX_LUN,
-        unsafe { USB_TRANSPORT_BUF.assume_init_mut() }.as_mut_slice(),
+        unsafe {
+            #[allow(static_mut_refs)]
+            USB_TRANSPORT_BUF.assume_init_mut()
+        }
+        .as_mut_slice(),
     )
     .unwrap();
 
@@ -136,8 +134,6 @@ fn main() -> ! {
         .self_powered(false)
         .build();
 
-    let write_buffer = unsafe { WRITE_BUFFER.assume_init_mut() }.as_mut_slice();
-
     loop {
         led.set_high().unwrap();
 
@@ -147,14 +143,14 @@ fn main() -> ! {
 
         // clear state if just configured or reset
         if matches!(usb_device.state(), UsbDeviceState::Default) {
-            unsafe {
-                STATE.reset();
-            };
+            critical_section::with(|cs| {
+                STATE.borrow_ref_mut(cs).reset();
+            })
         }
 
         let _ = scsi.poll(|command| {
             led.set_low().unwrap();
-            if let Err(err) = process_command(command, write_buffer) {
+            if let Err(err) = process_command(command) {
                 defmt::error!("{}", err);
             }
         });
@@ -163,7 +159,6 @@ fn main() -> ! {
 
 fn process_command(
     mut command: Command<ScsiCommand, Scsi<BulkOnly<UsbBus, &mut [u8]>>>,
-    write_buffer: &mut [u8],
 ) -> Result<(), TransportError<BulkOnlyError>> {
     defmt::info!("Handling: {}", command.kind);
 
@@ -182,17 +177,19 @@ fn process_command(
                 0x00, // additional fields, none set
                 0x00, // additional fields, none set
                 b'U', b'N', b'K', b'N', b'O', b'W', b'N', b' ', // 8-byte T-10 vendor id
-                b'S', b'T', b'M', b'3', b'2', b' ', b'U', b'S', b'B', b' ', b'F', b'l', b'a', b's',
-                b'h', b' ', // 16-byte product identification
+                b'R', b'P', b'2', b'0', b'4', b'0', b' ', b'U', b'S', b'B', b' ', b'F', b'l', b'a',
+                b's', b'h', // 16-byte product identification
                 b'1', b'.', b'2', b'3', // 4-byte product revision
             ])?;
             command.pass();
         }
-        ScsiCommand::RequestSense { .. } => unsafe {
+        ScsiCommand::RequestSense { .. } => critical_section::with(|cs| {
+            let mut state = STATE.borrow_ref_mut(cs);
+
             command.try_write_data_all(&[
                 0x70,                         // RESPONSE CODE. Set to 70h for information on current errors
                 0x00,                         // obsolete
-                STATE.sense_key.unwrap_or(0), // Bits 3..0: SENSE KEY. Contains information describing the error.
+                state.sense_key.unwrap_or(0), // Bits 3..0: SENSE KEY. Contains information describing the error.
                 0x00,
                 0x00,
                 0x00,
@@ -202,20 +199,28 @@ fn process_command(
                 0x00,
                 0x00,
                 0x00,                               // COMMAND-SPECIFIC INFORMATION
-                STATE.sense_key_code.unwrap_or(0),  // ASC
-                STATE.sense_qualifier.unwrap_or(0), // ASCQ
+                state.sense_key_code.unwrap_or(0),  // ASC
+                state.sense_qualifier.unwrap_or(0), // ASCQ
                 0x00,
                 0x00,
                 0x00,
                 0x00,
             ])?;
-            STATE.reset();
+            state.reset();
             command.pass();
-        },
+            Ok(())
+        })?,
         ScsiCommand::ReadCapacity10 { .. } => {
             let mut data = [0u8; 8];
             let _ = &mut data[0..4].copy_from_slice(&u32::to_be_bytes(BLOCKS - 1));
             let _ = &mut data[4..8].copy_from_slice(&u32::to_be_bytes(BLOCK_SIZE));
+            command.try_write_data_all(&data)?;
+            command.pass();
+        }
+        ScsiCommand::ReadCapacity16 { .. } => {
+            let mut data = [0u8; 16];
+            let _ = &mut data[0..8].copy_from_slice(&u32::to_be_bytes(BLOCKS - 1));
+            let _ = &mut data[8..12].copy_from_slice(&u32::to_be_bytes(BLOCK_SIZE));
             command.try_write_data_all(&data)?;
             command.pass();
         }
@@ -234,55 +239,71 @@ fn process_command(
             command.try_write_data_all(&data)?;
             command.pass();
         }
-        ScsiCommand::Read { lba, len } => unsafe {
-            if STATE.storage_offset != (len * BLOCK_SIZE) as usize {
-                let start = (BLOCK_SIZE * lba) as usize + STATE.storage_offset;
+        ScsiCommand::Read { lba, len } => critical_section::with(|cs| {
+            let lba = lba as u32;
+            let len = len as u32;
+            let mut state = STATE.borrow_ref_mut(cs);
+
+            if state.storage_offset != (len * BLOCK_SIZE) as usize {
+                let start = (BLOCK_SIZE * lba) as usize + state.storage_offset;
                 let end = (BLOCK_SIZE * lba) as usize + (BLOCK_SIZE * len) as usize;
 
                 // Uncomment this in order to push data in chunks smaller than a USB packet.
                 // let end = min(start + USB_PACKET_SIZE as usize - 1, end);
 
                 defmt::info!("Data transfer >>>>>>>> [{}..{}]", start, end);
-                let STORAGE = from_raw_parts(FILESYSTEM.as_ptr(), (BLOCK_SIZE * BLOCKS) as usize);
-                let count = command.write_data(&STORAGE[start..end])?;
-                STATE.storage_offset += count;
+                let count = command.write_data(&FILESYSTEM[start..end])?;
+                state.storage_offset += count;
             } else {
                 command.pass();
-                STATE.storage_offset = 0;
+                state.storage_offset = 0;
             }
-        },
-        ScsiCommand::Write { lba, len } => unsafe {
-            if STATE.storage_offset != (len * BLOCK_SIZE) as usize {
+
+            Ok(())
+        })?,
+        ScsiCommand::Write { lba, len } => critical_section::with(|cs| {
+            let lba = lba as u32;
+            let len = len as u32;
+
+            let mut state = STATE.borrow_ref_mut(cs);
+            let mut write_buffer = WRITE_BUFFER.borrow_ref_mut(cs);
+
+            if state.storage_offset != (len * BLOCK_SIZE) as usize {
                 loop {
-                    let start = (BLOCK_SIZE * lba) as usize + STATE.storage_offset;
+                    let start = (BLOCK_SIZE * lba) as usize + state.storage_offset;
                     let block_offset = start % (BLOCK_SIZE as usize);
                     let end = start + ((BLOCK_SIZE as usize) - block_offset);
                     defmt::info!("Data transfer <<<<<<<< [{}..{}]", start, end);
                     let count = command.read_data(&mut write_buffer[block_offset..])?;
-                    STATE.storage_offset += count;
+                    state.storage_offset += count;
 
-                    if count > 0 && (STATE.storage_offset % (BLOCK_SIZE as usize)) == 0 {
+                    if count > 0 && (state.storage_offset % (BLOCK_SIZE as usize)) == 0 {
                         // received a full block
                         defmt::warn!("Writing block {}", start / (BLOCK_SIZE as usize));
-                        rp2040_flash::flash::flash_range_erase_and_program(
-                            ((FILESYSTEM.as_ptr() as u32) & 0xffffff) + ((start as u32) & !0xfff),
-                            write_buffer,
-                            false,
-                        );
+                        unsafe {
+                            rp2040_flash::flash::flash_range_erase_and_program(
+                                ((FILESYSTEM.as_ptr() as u32) & 0xffffff)
+                                    + ((start as u32) & !0xfff),
+                                write_buffer.as_mut(),
+                                false,
+                            )
+                        };
                     } else {
                         break;
                     }
                 }
 
-                if STATE.storage_offset == (len * BLOCK_SIZE) as usize {
+                if state.storage_offset == (len * BLOCK_SIZE) as usize {
                     command.pass();
-                    STATE.storage_offset = 0;
+                    state.storage_offset = 0;
                 }
             } else {
                 command.pass();
-                STATE.storage_offset = 0;
+                state.storage_offset = 0;
             }
-        },
+
+            Ok(())
+        })?,
         ScsiCommand::ModeSense6 { .. } => {
             command.try_write_data_all(&[
                 0x03, // number of bytes that follow
@@ -298,12 +319,16 @@ fn process_command(
         }
         ref unknown_scsi_kind => {
             defmt::error!("Unknown SCSI command: {}", unknown_scsi_kind);
-            unsafe {
-                STATE.sense_key.replace(0x05); // illegal request Sense Key
-                STATE.sense_key_code.replace(0x20); // Invalid command operation ASC
-                STATE.sense_qualifier.replace(0x00); // Invalid command operation ASCQ
-            }
-            command.fail();
+            critical_section::with(|cs| {
+                let mut state = STATE.borrow_ref_mut(cs);
+                state.sense_key.replace(0x05); // illegal request Sense Key
+                state.sense_key_code.replace(0x20); // Invalid command operation ASC
+                state.sense_qualifier.replace(0x00); // Invalid command operation ASCQ
+
+                command.fail();
+
+                Ok(())
+            })?
         }
     }
 
