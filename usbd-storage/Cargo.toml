@@ -28,11 +28,13 @@ defmt = ["dep:defmt", "usb-device/defmt"]
 bbb = []
 ufi = []
 scsi = []
+extended_addressing = []
 
 [[test]]
 name = "scsi_bbb"
-required-features = ["scsi", "bbb"]
+required-features = ["scsi", "bbb", "extended_addressing"]
 
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+

@@ -6,10 +6,10 @@ const REQUEST_SENSE: u8 = 0x03;
 const INQUIRY: u8 = 0x12;
 const MODE_SENSE_6: u8 = 0x1A;
 const MODE_SENSE_10: u8 = 0x5A;
-const READ_10: u8 = 0x28;
+const READ_16: u8 = 0x88;
 const READ_CAPACITY_10: u8 = 0x25;
 const READ_CAPACITY_16: u8 = 0x9E;
-const WRITE_10: u8 = 0x2A;
+const WRITE_16: u8 = 0x8A;
 const READ_FORMAT_CAPACITIES: u8 = 0x23;
 
 pub fn cmd_into_bytes(cmd: ScsiCommand) -> Vec<u8> {
@@ -73,18 +73,18 @@ pub fn cmd_into_bytes(cmd: ScsiCommand) -> Vec<u8> {
             bytes.extend_from_slice(alloc_len.to_be_bytes().as_slice());
         }
         ScsiCommand::Read { lba, len } => {
-            bytes.push(READ_10);
+            bytes.push(READ_16);
             bytes.push(0);
-            bytes.extend_from_slice((lba as u32).to_be_bytes().as_slice());
+            bytes.extend_from_slice(lba.to_be_bytes().as_slice());
             bytes.push(0);
-            bytes.extend_from_slice((len as u16).to_be_bytes().as_slice());
+            bytes.extend_from_slice(len.to_be_bytes().as_slice());
         }
         ScsiCommand::Write { lba, len } => {
-            bytes.push(WRITE_10);
+            bytes.push(WRITE_16);
             bytes.push(0);
-            bytes.extend_from_slice((lba as u32).to_be_bytes().as_slice());
+            bytes.extend_from_slice(lba.to_be_bytes().as_slice());
             bytes.push(0);
-            bytes.extend_from_slice((len as u16).to_be_bytes().as_slice());
+            bytes.extend_from_slice(len.to_be_bytes().as_slice());
         }
         ScsiCommand::ReadFormatCapacities { alloc_len } => {
             bytes.push(READ_FORMAT_CAPACITIES);

@@ -16,12 +16,13 @@ Currently, only `Bulk Only` transport is implemented. It is possible to implemen
 # Features
 This crate has a couple of opt-in features that all could be used independently.
 
-| Feature | Description                                                      |
-|---------|------------------------------------------------------------------|
-| `bbb`   | Include Bulk Only Transport                                      |
-| `scsi`  | Include SCSI subclass                                            |
-| `ufi`   | Include USB Floppy Interface subclass                            |
-| `defmt` | Enable logging via [defmt](https://crates.io/crates/defmt) crate |
+| Feature               | Description                                                      |
+|-----------------------|------------------------------------------------------------------|
+| `bbb`                 | Include Bulk Only Transport                                      |
+| `scsi`                | Include SCSI subclass                                            |
+| `ufi`                 | Include USB Floppy Interface subclass                            |
+| `defmt`               | Enable logging via [defmt](https://crates.io/crates/defmt) crate |
+| `extended_addressing` | Enable commands that support 64-bit LBA and 32-bit LEN           |
 
 # Examples
 See [examples](examples)

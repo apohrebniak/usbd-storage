@@ -33,10 +33,13 @@ const MODE_SENSE_10: u8 = 0x5A;
 
 /* SBC */
 const READ_10: u8 = 0x28;
+#[cfg(feature = "extended_addressing")]
 const READ_16: u8 = 0x88;
 const READ_CAPACITY_10: u8 = 0x25;
 const READ_CAPACITY_16: u8 = 0x9E;
 const WRITE_10: u8 = 0x2A;
+#[cfg(feature = "extended_addressing")]
+const WRITE_16: u8 = 0x8A;
 
 /* MMC */
 const READ_FORMAT_CAPACITIES: u8 = 0x23;
@@ -84,12 +87,26 @@ pub enum ScsiCommand {
         alloc_len: u32,
     },
     Read {
+        #[cfg(feature = "extended_addressing")]
         lba: u64,
-        len: u64,
+        #[cfg(feature = "extended_addressing")]
+        len: u32,
+
+        #[cfg(not(feature = "extended_addressing"))]
+        lba: u32,
+        #[cfg(not(feature = "extended_addressing"))]
+        len: u16,
     },
     Write {
+        #[cfg(feature = "extended_addressing")]
         lba: u64,
-        len: u64,
+        #[cfg(feature = "extended_addressing")]
+        len: u32,
+
+        #[cfg(not(feature = "extended_addressing"))]
+        lba: u32,
+        #[cfg(not(feature = "extended_addressing"))]
+        len: u16,
     },
 
     /* MMC */
@@ -126,16 +143,36 @@ fn parse_cb(cb: &[u8]) -> ScsiCommand {
             alloc_len: u32::from_be_bytes([cb[10], cb[11], cb[12], cb[13]]),
         },
         READ_10 => ScsiCommand::Read {
+            #[cfg(not(feature = "extended_addressing"))]
+            lba: u32::from_be_bytes([cb[2], cb[3], cb[4], cb[5]]),
+            #[cfg(not(feature = "extended_addressing"))]
+            len: u16::from_be_bytes([cb[7], cb[8]]),
+
+            #[cfg(feature = "extended_addressing")]
             lba: u32::from_be_bytes([cb[2], cb[3], cb[4], cb[5]]) as u64,
-            len: u16::from_be_bytes([cb[7], cb[8]]) as u64,
+            #[cfg(feature = "extended_addressing")]
+            len: u16::from_be_bytes([cb[7], cb[8]]) as u32,
         },
+        #[cfg(feature = "extended_addressing")]
         READ_16 => ScsiCommand::Read {
             lba: u64::from_be_bytes((&cb[2..10]).try_into().unwrap()),
-            len: u32::from_be_bytes((&cb[10..14]).try_into().unwrap()) as u64,
+            len: u32::from_be_bytes((&cb[10..14]).try_into().unwrap()),
         },
         WRITE_10 => ScsiCommand::Write {
+            #[cfg(not(feature = "extended_addressing"))]
+            lba: u32::from_be_bytes([cb[2], cb[3], cb[4], cb[5]]),
+            #[cfg(not(feature = "extended_addressing"))]
+            len: u16::from_be_bytes([cb[7], cb[8]]),
+
+            #[cfg(feature = "extended_addressing")]
             lba: u32::from_be_bytes([cb[2], cb[3], cb[4], cb[5]]) as u64,
-            len: u16::from_be_bytes([cb[7], cb[8]]) as u64,
+            #[cfg(feature = "extended_addressing")]
+            len: u16::from_be_bytes([cb[7], cb[8]]) as u32,
+        },
+        #[cfg(feature = "extended_addressing")]
+        WRITE_16 => ScsiCommand::Write {
+            lba: u64::from_be_bytes((&cb[2..10]).try_into().unwrap()),
+            len: u32::from_be_bytes((&cb[10..14]).try_into().unwrap()),
         },
         MODE_SENSE_6 => ScsiCommand::ModeSense6 {
             dbd: (cb[1] & 0b00001000) != 0,
