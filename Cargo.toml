@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "usbd-storage",
-    "examples",
+    "examples/stm32",
+    "examples/rp2040",
 ]
 resolver = "2"

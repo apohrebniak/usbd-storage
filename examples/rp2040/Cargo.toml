@@ -1,0 +1,50 @@
+[package]
+name = "rp2040"
+description = "USB Mass Storage class device examples"
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/apohrebniak/usbd-storage"
+homepage = "https://github.com/apohrebniak/usbd-storage"
+publish = false
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies.usbd-storage]
+path = "../../usbd-storage"
+features = ["bbb", "defmt", "scsi", "ufi"]
+
+[dependencies.usb-device]
+version = "0.3.2"
+
+[dependencies.cortex-m]
+version = "0.7.7"
+
+[dependencies.cortex-m-rt]
+version = "0.7.5"
+
+[dependencies.defmt]
+version = "1.0.1"
+
+[dependencies.defmt-rtt]
+version = "1"
+
+[dependencies.embedded-hal]
+version = "1"
+
+[dependencies.rp2040-boot2]
+version  = "0.3"
+
+[dependencies.rp2040-flash]
+version = "0.6"
+
+[dependencies.rp2040-hal]
+version = "0.11"
+features = ["critical-section-impl"]
+
+[dependencies.critical-section]
+version = "1.2.0"
+
+[[bin]]
+name = "rp2040_scsi_bbb"
+

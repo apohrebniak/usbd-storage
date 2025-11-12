@@ -1,5 +1,5 @@
 [package]
-name = "examples"
+name = "stm32"
 description = "USB Mass Storage class device examples"
 version = "0.0.1"
 edition = "2021"
@@ -12,7 +12,7 @@ publish = false
 
 # USB Mass Storage
 [dependencies.usbd-storage]
-path = "../usbd-storage"
+path = "../../usbd-storage"
 features = ["bbb", "defmt", "scsi", "ufi"]
 
 # USB stack

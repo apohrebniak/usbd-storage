@@ -1,0 +1,17 @@
+[build]
+target = "thumbv6m-none-eabi"
+
+[target.thumbv6m-none-eabi]
+rustflags = [
+    "-C", "link-arg=--nmagic",
+    "-C", "link-arg=-Tlink.x",
+    "-C", "link-arg=-Tdefmt.x",
+    "-C", "no-vectorize-loops",
+]
+
+# chose this to flash using the built-in bootloader
+runner = "picotool load --update --verify --execute -t elf"
+
+# or this to program it using a programmer
+# runner = "probe-rs run --chip RP2040 --protocol swd"
+
