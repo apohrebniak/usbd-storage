@@ -226,8 +226,8 @@ fn process_command(
             command.pass();
         }
         ScsiCommand::Read { lba, len } => critical_section::with(|cs| {
-            let lba = lba as u32;
             let len = len as u32;
+
             let mut state = STATE.borrow_ref_mut(cs);
 
             if state.storage_offset != (len * BLOCK_SIZE) as usize {
@@ -248,8 +248,8 @@ fn process_command(
             Ok(())
         })?,
         ScsiCommand::Write { lba, len } => critical_section::with(|cs| {
-            let lba = lba as u32;
             let len = len as u32;
+
             let mut state = STATE.borrow_ref_mut(cs);
 
             if state.storage_offset != (len * BLOCK_SIZE) as usize {

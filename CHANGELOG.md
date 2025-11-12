@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Adds a `extended_addressing` feature that enables 64-bit LBA and 32-bit LEN SCSI commands (https://github.com/apohrebniak/usbd-storage/pull/17)
 - Add RP2040 example (https://github.com/apohrebniak/usbd-storage/pull/16)
 - Store a number of unknown command (https://github.com/apohrebniak/usbd-storage/pull/7)
 - Upgrade defmt to v.1.0.0 (https://github.com/apohrebniak/usbd-storage/pull/14)
