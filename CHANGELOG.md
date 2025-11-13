@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2025-11-13
+
+### Changed
+
 - Adds a `extended_addressing` feature that enables 64-bit LBA and 32-bit LEN SCSI commands (https://github.com/apohrebniak/usbd-storage/pull/17)
 - Add RP2040 example (https://github.com/apohrebniak/usbd-storage/pull/16)
 - Store a number of unknown command (https://github.com/apohrebniak/usbd-storage/pull/7)
@@ -35,7 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release.
 
-[unreleased]: https://github.com/apohrebniak/usbd-storage/compare/v1.0.0...HEAD
+[unreleased]: https://github.com/apohrebniak/usbd-storage/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/apohrebniak/usbd-storage/releases/tag/v2.0.0
 [1.0.0]: https://github.com/apohrebniak/usbd-storage/releases/tag/v1.0.0
 [0.2.0]: https://github.com/apohrebniak/usbd-storage/releases/tag/v0.2.0
 [0.1.1]: https://github.com/apohrebniak/usbd-storage/releases/tag/v0.1.1
