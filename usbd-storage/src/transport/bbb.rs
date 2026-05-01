@@ -370,18 +370,30 @@ where
     }
 
     fn end_data_transfer(&mut self) -> BulkOnlyTransportResult<()> {
-        // spec. 6.7.2 and 6.7.3
+        // USB Mass Storage Bulk-Only Transport spec §6.7.2 and §6.7.3.
+        //
+        // For Case 5 (Hi > Di — host expected more IN data than the device
+        // produced), the spec permits two responses:
+        //   (a) STALL the bulk-IN pipe and follow up with a CSW carrying
+        //       dCSWDataResidue, OR
+        //   (b) Just send a CSW with the residue. No stall required.
+        //
+        // The original code chose (a). Empirically Windows USBSTOR.sys on
+        // full-speed (12 Mbps) bus-powered devices reacts to the IN-stall
+        // by issuing a USB-level reset (~89 ms drop), which derails the
+        // initial enumeration and causes a 6-13 cycle mount loop with
+        // 20-second USBSTOR retry timeouts in between. Linux usb-storage
+        // and most production USB flash drives follow approach (b), and
+        // Windows accepts that fine. We follow them.
+        //
+        // The OUT-side stall on Case 9/13 (host wrote more than device
+        // accepted) is preserved — that path doesn't trigger Windows'
+        // reset behaviour and the stall serves to drop the surplus packets.
         if self.cbw.data_transfer_len > 0 {
-            match self.state {
-                State::DataTransferToHost => {
-                    //TODO: send zlp right here
-                    self.stall_in_ep();
-                }
-                State::DataTransferFromHost => {
-                    self.stall_out_ep();
-                }
-                _ => {}
+            if matches!(self.state, State::DataTransferFromHost) {
+                self.stall_out_ep();
             }
+            // DataTransferToHost: skip the stall; CSW residue is sufficient.
         }
 
         // write CSW into buffer
