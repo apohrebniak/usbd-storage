@@ -78,13 +78,7 @@ impl<T: BorrowMut<[u8]>> Buffer<T> {
 
     fn shift(&mut self) {
         if self.rpos != self.wpos {
-            unsafe {
-                core::ptr::copy(
-                    &self.inner.borrow()[self.rpos] as *const u8,
-                    &mut self.inner.borrow_mut()[0] as *mut u8,
-                    self.available_read(),
-                )
-            }
+            self.inner.borrow_mut().copy_within(self.rpos..self.wpos, 0);
             self.wpos -= self.rpos;
             self.rpos = 0;
         } else {
