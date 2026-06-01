@@ -351,18 +351,16 @@ where
 
     fn check_end_data_transfer(&mut self) -> BulkOnlyTransportResult<()> {
         match self.state {
-            State::DataTransferNoData | State::DataTransferFromHost => {
+            State::DataTransferNoData | State::DataTransferFromHost
                 // command is passed or failed. IO buffer is irrelevant. end data transfer
-                if self.cs.is_some() {
+                if self.cs.is_some() => {
                     self.end_data_transfer()?;
                 }
-            }
-            State::DataTransferToHost => {
+            State::DataTransferToHost
                 // command is passed or failed. empty IO buffer first. if empty, end data transfer
-                if self.cs.is_some() && self.buf.available_read() == 0 {
+                if self.cs.is_some() && self.buf.available_read() == 0 => {
                     self.end_data_transfer()?;
                 }
-            }
             _ => {}
         }
 
