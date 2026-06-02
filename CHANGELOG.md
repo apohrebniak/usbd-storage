@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fix unsoundness issue in internal use of `BulkOnly`s buffer (https://github.com/apohrebniak/usbd-storage/pull/21)
+
 ## [2.0.0] - 2025-11-13
 
 ### Changed
