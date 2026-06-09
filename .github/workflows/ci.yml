@@ -18,9 +18,6 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        toolchain:
-          - stable
-          - beta
         target:
           - thumbv7em-none-eabihf
           - thumbv6m-none-eabi
@@ -29,26 +26,31 @@ jobs:
       - uses: actions/checkout@v4
       - name: Toolchain and tools
         run: |
-          rustup update ${{matrix.toolchain}}
-          rustup default ${{matrix.toolchain}}
-          rustup target add ${{matrix.target}}
+          rustup update stable
+          rustup default stable
           cargo install --locked --version 1.11.0 cargo-all-features
+
       - name: cargo-fmt
-        if: ${{matrix.toolchain == 'stable'}}
         run: cargo fmt --check --verbose
       - name: cargo-clippy
-        if: ${{matrix.toolchain == 'stable'}}
         run:  cargo clippy -p usbd-storage --target ${{matrix.target}} --all-features --verbose
+
       - name: cargo-test
         run: cargo test -p usbd-storage --test '**' --all-features
       - name: cargo-build
         run: cargo build -p usbd-storage --target ${{matrix.target}} --verbose
       - name: cargo-build-all-features
         run: cargo all-features build -p usbd-storage --target ${{matrix.target}} --verbose
+
       - name: cargo-build examples/stm32
         if: ${{matrix.target == 'thumbv7em-none-eabihf'}}
-        run: cargo build -p stm32 --target ${{matrix.target}} --verbose
+        run: |
+          cargo build -p stm32 --target ${{matrix.target}} --verbose
+          cargo clippy -p stm32 --target ${{matrix.target}} --all-features --verbose
+
       - name: cargo-build examples/rp2040
         if: ${{matrix.target == 'thumbv6m-none-eabi'}}
-        run: cargo build -p rp2040 --target ${{matrix.target}} --verbose
+        run: |
+          cargo build -p rp2040 --target ${{matrix.target}} --verbose
+          cargo clippy -p rp2040 --target ${{matrix.target}} --all-features --verbose
 

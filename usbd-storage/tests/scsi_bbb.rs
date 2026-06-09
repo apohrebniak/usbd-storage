@@ -1,13 +1,13 @@
 mod common;
 
+use crate::common::Step;
 use crate::common::bbb::{Cbw, CommandStatus, Csw, DataDirection, DummyUsbBus};
 use crate::common::scsi::cmd_into_bytes;
-use crate::common::Step;
 use std::time::Duration;
 use usb_device::bus::UsbBusAllocator;
 use usb_device::device::{UsbDeviceBuilder, UsbVidPid};
-use usbd_storage::subclass::scsi::{Scsi, ScsiCommand};
 use usbd_storage::subclass::Command;
+use usbd_storage::subclass::scsi::{Scsi, ScsiCommand};
 use usbd_storage::transport::bbb::BulkOnly;
 
 const TIMEOUT: Duration = Duration::from_secs(1);

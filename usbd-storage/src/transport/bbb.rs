@@ -5,12 +5,12 @@ use crate::fmt::{info, trace};
 use crate::transport::{CommandStatus, Transport, TransportError};
 use core::borrow::BorrowMut;
 use core::cmp::min;
+use usb_device::UsbError;
 use usb_device::bus::{UsbBus, UsbBusAllocator};
 use usb_device::class::ControlIn;
 use usb_device::class_prelude::DescriptorWriter;
 use usb_device::control::{Recipient, RequestType};
 use usb_device::endpoint::{Endpoint, In, Out};
-use usb_device::UsbError;
 
 /// Bulk Only Transport interface protocol
 pub(crate) const TRANSPORT_BBB: u8 = 0x50;
