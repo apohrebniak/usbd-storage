@@ -1,0 +1,5 @@
+[toolchain]
+channel = "1.96.0"
+targets = ["thumbv7em-none-eabihf", "thumbv6m-none-eabi"]
+profile = "default"
+

@@ -1,7 +1,7 @@
 //! USB Floppy Interface
 
-use crate::transport::Transport;
 use crate::CLASS_MASS_STORAGE;
+use crate::transport::Transport;
 use usb_device::bus::InterfaceNumber;
 use usb_device::bus::UsbBus;
 use usb_device::class::{ControlIn, UsbClass};
@@ -10,11 +10,11 @@ use usb_device::descriptor::DescriptorWriter;
 use {
     crate::fmt::debug,
     crate::subclass::Command,
-    crate::transport::bbb::{BulkOnly, BulkOnlyError},
     crate::transport::TransportError,
+    crate::transport::bbb::{BulkOnly, BulkOnlyError},
     core::borrow::BorrowMut,
-    usb_device::bus::UsbBusAllocator,
     usb_device::UsbError,
+    usb_device::bus::UsbBusAllocator,
 };
 
 /// UFI device subclass code

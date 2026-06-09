@@ -9,15 +9,15 @@ use defmt_rtt as _;
 use stm32f4xx_hal::gpio::alt::otg_fs::{Dm, Dp};
 
 use stm32f4xx_hal::gpio::GpioExt;
-use stm32f4xx_hal::otg_fs::{UsbBus, USB};
+use stm32f4xx_hal::otg_fs::{USB, UsbBus};
 use stm32f4xx_hal::pac;
 use stm32f4xx_hal::prelude::*;
 use stm32f4xx_hal::rcc::RccExt;
 use usb_device::prelude::*;
-use usbd_storage::subclass::scsi::{Scsi, ScsiCommand};
 use usbd_storage::subclass::Command;
-use usbd_storage::transport::bbb::{BulkOnly, BulkOnlyError};
+use usbd_storage::subclass::scsi::{Scsi, ScsiCommand};
 use usbd_storage::transport::TransportError;
+use usbd_storage::transport::bbb::{BulkOnly, BulkOnlyError};
 
 static mut USB_EP_MEMORY: [u32; 1024] = [0u32; 1024];
 /// Not necessarily `'static`. May reside in some special memory location
@@ -143,13 +143,14 @@ fn main() -> ! {
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn process_command(
     mut command: Command<ScsiCommand, Scsi<BulkOnly<UsbBus<USB>, &mut [u8]>>>,
 ) -> Result<(), TransportError<BulkOnlyError>> {
     defmt::info!("Handling: {:#X}", command.kind);
 
     match command.kind {
-        ScsiCommand::TestUnitReady { .. } => {
+        ScsiCommand::TestUnitReady => {
             command.pass();
         }
         ScsiCommand::Inquiry { .. } => {
@@ -196,7 +197,7 @@ fn process_command(
             command.pass();
             Ok(())
         })?,
-        ScsiCommand::ReadCapacity10 { .. } => {
+        ScsiCommand::ReadCapacity10 => {
             let mut data = [0u8; 8];
             let _ = &mut data[0..4].copy_from_slice(&u32::to_be_bytes(BLOCKS - 1));
             let _ = &mut data[4..8].copy_from_slice(&u32::to_be_bytes(BLOCK_SIZE));
@@ -215,7 +216,7 @@ fn process_command(
             let _ = &mut data[0..4].copy_from_slice(&[
                 0x00, 0x00, 0x00, 0x08, // capacity list length
             ]);
-            let _ = &mut data[4..8].copy_from_slice(&u32::to_be_bytes(BLOCKS as u32)); // number of blocks
+            let _ = &mut data[4..8].copy_from_slice(&u32::to_be_bytes(BLOCKS)); // number of blocks
             data[8] = 0x01; //unformatted media
             let block_length_be = u32::to_be_bytes(BLOCK_SIZE);
             data[9] = block_length_be[1];
@@ -238,7 +239,7 @@ fn process_command(
                 // let end = min(start + USB_PACKET_SIZE as usize - 1, end);
 
                 defmt::info!("Data transfer >>>>>>>> [{}..{}]", start, end);
-                let count = command.write_data(&mut STORAGE.borrow_ref_mut(cs)[start..end])?;
+                let count = command.write_data(&STORAGE.borrow_ref_mut(cs)[start..end])?;
                 state.storage_offset += count;
             } else {
                 command.pass();

@@ -10,15 +10,15 @@ use rp2040_hal::pac;
 use rp2040_hal::usb::UsbBus;
 use usb_device::bus::UsbBusAllocator;
 use usb_device::prelude::*;
-use usbd_storage::subclass::scsi::{Scsi, ScsiCommand};
 use usbd_storage::subclass::Command;
-use usbd_storage::transport::bbb::{BulkOnly, BulkOnlyError};
+use usbd_storage::subclass::scsi::{Scsi, ScsiCommand};
 use usbd_storage::transport::TransportError;
+use usbd_storage::transport::bbb::{BulkOnly, BulkOnlyError};
 
 /// Not necessarily `'static`. May reside in some special memory location
 static mut USB_TRANSPORT_BUF: MaybeUninit<[u8; BLOCK_SIZE as usize]> = MaybeUninit::uninit();
 
-#[link_section = ".filesystem"]
+#[unsafe(link_section = ".filesystem")]
 #[used]
 pub static FILESYSTEM: [u8; (BLOCK_SIZE * BLOCKS) as usize] = [0u8; (BLOCK_SIZE * BLOCKS) as usize];
 
@@ -46,7 +46,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 /// need this to help the ROM bootloader get our code up and running.
 /// Note: This boot block is not necessary when using a rp-hal based BSP
 /// as the BSPs already perform this step.
-#[link_section = ".boot2"]
+#[unsafe(link_section = ".boot2")]
 #[used]
 pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_GENERIC_03H;
 
@@ -163,7 +163,7 @@ fn process_command(
     defmt::info!("Handling: {}", command.kind);
 
     match command.kind {
-        ScsiCommand::TestUnitReady { .. } => {
+        ScsiCommand::TestUnitReady => {
             command.pass();
         }
         ScsiCommand::Inquiry { .. } => {
@@ -210,7 +210,7 @@ fn process_command(
             command.pass();
             Ok(())
         })?,
-        ScsiCommand::ReadCapacity10 { .. } => {
+        ScsiCommand::ReadCapacity10 => {
             let mut data = [0u8; 8];
             let _ = &mut data[0..4].copy_from_slice(&u32::to_be_bytes(BLOCKS - 1));
             let _ = &mut data[4..8].copy_from_slice(&u32::to_be_bytes(BLOCK_SIZE));
@@ -276,7 +276,7 @@ fn process_command(
                     let count = command.read_data(&mut write_buffer[block_offset..])?;
                     state.storage_offset += count;
 
-                    if count > 0 && (state.storage_offset % (BLOCK_SIZE as usize)) == 0 {
+                    if count > 0 && state.storage_offset.is_multiple_of(BLOCK_SIZE as usize) {
                         // received a full block
                         defmt::warn!("Writing block {}", start / (BLOCK_SIZE as usize));
                         unsafe {

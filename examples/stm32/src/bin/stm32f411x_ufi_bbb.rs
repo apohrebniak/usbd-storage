@@ -10,16 +10,16 @@ use core::cell::RefCell;
 use critical_section::Mutex;
 
 use stm32f4xx_hal::gpio::GpioExt;
-use stm32f4xx_hal::otg_fs::{UsbBus, USB};
+use stm32f4xx_hal::otg_fs::{USB, UsbBus};
 use stm32f4xx_hal::pac;
 use stm32f4xx_hal::prelude::*;
 use stm32f4xx_hal::rcc::RccExt;
 
 use usb_device::prelude::*;
-use usbd_storage::subclass::ufi::{Ufi, UfiCommand};
 use usbd_storage::subclass::Command;
-use usbd_storage::transport::bbb::{BulkOnly, BulkOnlyError};
+use usbd_storage::subclass::ufi::{Ufi, UfiCommand};
 use usbd_storage::transport::TransportError;
+use usbd_storage::transport::bbb::{BulkOnly, BulkOnlyError};
 
 static mut USB_EP_MEMORY: [u32; 1024] = [0u32; 1024];
 /// Not necessarily `'static`. May reside in some special memory location
@@ -140,6 +140,7 @@ fn main() -> ! {
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn process_command(
     mut command: Command<UfiCommand, Ufi<BulkOnly<UsbBus<USB>, &mut [u8]>>>,
 ) -> Result<(), TransportError<BulkOnlyError>> {
@@ -204,9 +205,6 @@ fn process_command(
             command.pass();
         }
         UfiCommand::Read { lba, len } => critical_section::with(|cs| {
-            let lba = lba as u32;
-            let len = len as u32;
-
             let mut state = STATE.borrow_ref_mut(cs);
 
             if state.storage_offset != len as usize * BLOCK_SIZE {
@@ -214,14 +212,14 @@ fn process_command(
                 if lba < DUMP_MAX_LBA {
                     /* requested data from dump */
                     let start = (BLOCK_SIZE * lba as usize) + state.storage_offset;
-                    let end = (BLOCK_SIZE * lba as usize) + (BLOCK_SIZE as usize * len as usize);
+                    let end = (BLOCK_SIZE * lba as usize) + (BLOCK_SIZE * len as usize);
                     defmt::info!("Data transfer >>>>>>>> [{}..{}]", start, end);
                     let count = command.write_data(&FAT[start..end])?;
                     state.storage_offset += count;
                 } else {
                     /* fill with 0xF6 */
                     loop {
-                        let count = command.write_data(&[0xF6; BLOCK_SIZE as usize])?;
+                        let count = command.write_data(&[0xF6; BLOCK_SIZE])?;
                         state.storage_offset += count;
                         if count == 0 {
                             break;

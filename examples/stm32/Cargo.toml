@@ -2,7 +2,7 @@
 name = "stm32"
 description = "USB Mass Storage class device examples"
 version = "0.0.1"
-edition = "2021"
+edition = "2024"
 license = "MIT"
 repository = "https://github.com/apohrebniak/usbd-storage"
 homepage = "https://github.com/apohrebniak/usbd-storage"

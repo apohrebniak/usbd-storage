@@ -1,10 +1,10 @@
 //! USB Mass Storage transports
 
 use core::fmt::Debug;
+use usb_device::UsbError;
 use usb_device::bus::UsbBus;
 use usb_device::class::ControlIn;
 use usb_device::descriptor::DescriptorWriter;
-use usb_device::UsbError;
 
 #[cfg(feature = "bbb")]
 pub mod bbb;
