@@ -127,152 +127,89 @@ pub enum PageControl {
 
 #[allow(dead_code)]
 fn parse_cb(cb: &[u8]) -> ScsiCommand {
-    // Every command block carries at least its opcode. `cb` is host-supplied
-    // (the CBW `block` truncated to `block_len`, validated only to
-    // `MIN_CB_LEN..=MAX_CB_LEN`), so an opcode that needs more bytes than are
-    // present must NOT index past the slice — that would panic on a malformed
-    // CDB. Each arm uses the helpers below, which fall back to the
-    // `ScsiCommand::Unknown` path when the CDB is too short for that opcode.
+    // `cb` is host-supplied (the CBW `block` truncated to `block_len`, validated
+    // only to `MIN_CB_LEN..=MAX_CB_LEN`), so an opcode that needs more bytes than
+    // are present must NOT index past the slice — that would panic on a malformed
+    // CDB. The transport guarantees at least the opcode byte, but we still extract
+    // it via `first()` so a stray empty `cb` degrades to `Unknown` instead of
+    // panicking.
     let opcode = match cb.first() {
         Some(&opcode) => opcode,
         None => return ScsiCommand::Unknown { cmd: 0 },
     };
 
-    /// Fetch a single CDB byte, or signal "too short".
-    fn byte(cb: &[u8], i: usize) -> Option<u8> {
-        cb.get(i).copied()
-    }
+    // Match on `(opcode, len)`. Each arm's length guard (`N..`) is the minimum CDB
+    // length that makes the byte indexing inside it in-bounds — i.e. one past the
+    // highest index the arm reads. A known opcode whose CDB is shorter fails its
+    // guard and falls through to the catch-all, answered as `Unknown` (ILLEGAL
+    // REQUEST) — the correct response to a truncated CDB.
+    match (opcode, cb.len()) {
+        (TEST_UNIT_READY, _) => ScsiCommand::TestUnitReady,
+        (INQUIRY, 5..) => ScsiCommand::Inquiry {
+            evpd: (cb[1] & 0b00000001) != 0,
+            page_code: cb[2],
+            alloc_len: u16::from_be_bytes([cb[3], cb[4]]),
+        },
+        (REQUEST_SENSE, 5..) => ScsiCommand::RequestSense {
+            desc: (cb[1] & 0b00000001) != 0,
+            alloc_len: cb[4],
+        },
+        (READ_CAPACITY_10, _) => ScsiCommand::ReadCapacity10,
+        (READ_CAPACITY_16, 14..) => ScsiCommand::ReadCapacity16 {
+            alloc_len: u32::from_be_bytes([cb[10], cb[11], cb[12], cb[13]]),
+        },
+        (READ_10, 9..) => ScsiCommand::Read {
+            #[cfg(not(feature = "extended_addressing"))]
+            lba: u32::from_be_bytes([cb[2], cb[3], cb[4], cb[5]]),
+            #[cfg(not(feature = "extended_addressing"))]
+            len: u16::from_be_bytes([cb[7], cb[8]]),
 
-    fn be_u16(cb: &[u8], i: usize) -> Option<u16> {
-        cb.get(i..i + 2).map(|s| u16::from_be_bytes([s[0], s[1]]))
-    }
-
-    fn be_u32(cb: &[u8], i: usize) -> Option<u32> {
-        cb.get(i..i + 4)
-            .map(|s| u32::from_be_bytes([s[0], s[1], s[2], s[3]]))
-    }
-
-    #[cfg(feature = "extended_addressing")]
-    fn be_u64(cb: &[u8], i: usize) -> Option<u64> {
-        cb.get(i..i + 8)
-            .map(|s| u64::from_be_bytes([s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]]))
-    }
-
-    let unknown = ScsiCommand::Unknown { cmd: opcode };
-
-    match opcode {
-        TEST_UNIT_READY => ScsiCommand::TestUnitReady,
-        INQUIRY => {
-            let (Some(b1), Some(page_code), Some(alloc_len)) =
-                (byte(cb, 1), byte(cb, 2), be_u16(cb, 3))
-            else {
-                return unknown;
-            };
-            ScsiCommand::Inquiry {
-                evpd: (b1 & 0b00000001) != 0,
-                page_code,
-                alloc_len,
-            }
-        }
-        REQUEST_SENSE => {
-            let (Some(b1), Some(alloc_len)) = (byte(cb, 1), byte(cb, 4)) else {
-                return unknown;
-            };
-            ScsiCommand::RequestSense {
-                desc: (b1 & 0b00000001) != 0,
-                alloc_len,
-            }
-        }
-        READ_CAPACITY_10 => ScsiCommand::ReadCapacity10,
-        READ_CAPACITY_16 => {
-            let Some(alloc_len) = be_u32(cb, 10) else {
-                return unknown;
-            };
-            ScsiCommand::ReadCapacity16 { alloc_len }
-        }
-        READ_10 => {
-            let (Some(lba), Some(len)) = (be_u32(cb, 2), be_u16(cb, 7)) else {
-                return unknown;
-            };
-            ScsiCommand::Read {
-                #[cfg(not(feature = "extended_addressing"))]
-                lba,
-                #[cfg(not(feature = "extended_addressing"))]
-                len,
-
-                #[cfg(feature = "extended_addressing")]
-                lba: lba as u64,
-                #[cfg(feature = "extended_addressing")]
-                len: len as u32,
-            }
-        }
+            #[cfg(feature = "extended_addressing")]
+            lba: u32::from_be_bytes([cb[2], cb[3], cb[4], cb[5]]) as u64,
+            #[cfg(feature = "extended_addressing")]
+            len: u16::from_be_bytes([cb[7], cb[8]]) as u32,
+        },
         #[cfg(feature = "extended_addressing")]
-        READ_16 => {
-            let (Some(lba), Some(len)) = (be_u64(cb, 2), be_u32(cb, 10)) else {
-                return unknown;
-            };
-            ScsiCommand::Read { lba, len }
-        }
-        WRITE_10 => {
-            let (Some(lba), Some(len)) = (be_u32(cb, 2), be_u16(cb, 7)) else {
-                return unknown;
-            };
-            ScsiCommand::Write {
-                #[cfg(not(feature = "extended_addressing"))]
-                lba,
-                #[cfg(not(feature = "extended_addressing"))]
-                len,
+        (READ_16, 14..) => ScsiCommand::Read {
+            lba: u64::from_be_bytes([cb[2], cb[3], cb[4], cb[5], cb[6], cb[7], cb[8], cb[9]]),
+            len: u32::from_be_bytes([cb[10], cb[11], cb[12], cb[13]]),
+        },
+        (WRITE_10, 9..) => ScsiCommand::Write {
+            #[cfg(not(feature = "extended_addressing"))]
+            lba: u32::from_be_bytes([cb[2], cb[3], cb[4], cb[5]]),
+            #[cfg(not(feature = "extended_addressing"))]
+            len: u16::from_be_bytes([cb[7], cb[8]]),
 
-                #[cfg(feature = "extended_addressing")]
-                lba: lba as u64,
-                #[cfg(feature = "extended_addressing")]
-                len: len as u32,
-            }
-        }
+            #[cfg(feature = "extended_addressing")]
+            lba: u32::from_be_bytes([cb[2], cb[3], cb[4], cb[5]]) as u64,
+            #[cfg(feature = "extended_addressing")]
+            len: u16::from_be_bytes([cb[7], cb[8]]) as u32,
+        },
         #[cfg(feature = "extended_addressing")]
-        WRITE_16 => {
-            let (Some(lba), Some(len)) = (be_u64(cb, 2), be_u32(cb, 10)) else {
-                return unknown;
-            };
-            ScsiCommand::Write { lba, len }
-        }
-        MODE_SENSE_6 => {
-            let (Some(b1), Some(b2), Some(subpage_code), Some(alloc_len)) =
-                (byte(cb, 1), byte(cb, 2), byte(cb, 3), byte(cb, 4))
-            else {
-                return unknown;
-            };
-            ScsiCommand::ModeSense6 {
-                dbd: (b1 & 0b00001000) != 0,
-                page_control: PageControl::try_from_primitive(b2 >> 6)
-                    .unwrap_or(PageControl::CurrentValues),
-                page_code: b2 & 0b00111111,
-                subpage_code,
-                alloc_len,
-            }
-        }
-        MODE_SENSE_10 => {
-            let (Some(b1), Some(b2), Some(subpage_code), Some(alloc_len)) =
-                (byte(cb, 1), byte(cb, 2), byte(cb, 3), be_u16(cb, 7))
-            else {
-                return unknown;
-            };
-            ScsiCommand::ModeSense10 {
-                dbd: (b1 & 0b00001000) != 0,
-                page_control: PageControl::try_from_primitive(b2 >> 6)
-                    .unwrap_or(PageControl::CurrentValues),
-                page_code: b2 & 0b00111111,
-                subpage_code,
-                alloc_len,
-            }
-        }
-        READ_FORMAT_CAPACITIES => {
-            let Some(alloc_len) = be_u16(cb, 7) else {
-                return unknown;
-            };
-            ScsiCommand::ReadFormatCapacities { alloc_len }
-        }
-        cmd => ScsiCommand::Unknown { cmd },
+        (WRITE_16, 14..) => ScsiCommand::Write {
+            lba: u64::from_be_bytes([cb[2], cb[3], cb[4], cb[5], cb[6], cb[7], cb[8], cb[9]]),
+            len: u32::from_be_bytes([cb[10], cb[11], cb[12], cb[13]]),
+        },
+        (MODE_SENSE_6, 5..) => ScsiCommand::ModeSense6 {
+            dbd: (cb[1] & 0b00001000) != 0,
+            page_control: PageControl::try_from_primitive(cb[2] >> 6)
+                .unwrap_or(PageControl::CurrentValues),
+            page_code: cb[2] & 0b00111111,
+            subpage_code: cb[3],
+            alloc_len: cb[4],
+        },
+        (MODE_SENSE_10, 9..) => ScsiCommand::ModeSense10 {
+            dbd: (cb[1] & 0b00001000) != 0,
+            page_control: PageControl::try_from_primitive(cb[2] >> 6)
+                .unwrap_or(PageControl::CurrentValues),
+            page_code: cb[2] & 0b00111111,
+            subpage_code: cb[3],
+            alloc_len: u16::from_be_bytes([cb[7], cb[8]]),
+        },
+        (READ_FORMAT_CAPACITIES, 9..) => ScsiCommand::ReadFormatCapacities {
+            alloc_len: u16::from_be_bytes([cb[7], cb[8]]),
+        },
+        _ => ScsiCommand::Unknown { cmd: opcode },
     }
 }
 
