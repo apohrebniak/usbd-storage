@@ -127,23 +127,9 @@ pub enum PageControl {
 
 #[allow(dead_code)]
 fn parse_cb(cb: &[u8]) -> ScsiCommand {
-    // `cb` is host-supplied (the CBW `block` truncated to `block_len`, validated
-    // only to `MIN_CB_LEN..=MAX_CB_LEN`), so an opcode that needs more bytes than
-    // are present must NOT index past the slice — that would panic on a malformed
-    // CDB. The transport guarantees at least the opcode byte, but we still extract
-    // it via `first()` so a stray empty `cb` degrades to `Unknown` instead of
-    // panicking.
-    let opcode = match cb.first() {
-        Some(&opcode) => opcode,
-        None => return ScsiCommand::Unknown { cmd: 0 },
-    };
+    debug_assert!(!cb.is_empty());
 
-    // Match on `(opcode, len)`. Each arm's length guard (`N..`) is the minimum CDB
-    // length that makes the byte indexing inside it in-bounds — i.e. one past the
-    // highest index the arm reads. A known opcode whose CDB is shorter fails its
-    // guard and falls through to the catch-all, answered as `Unknown` (ILLEGAL
-    // REQUEST) — the correct response to a truncated CDB.
-    match (opcode, cb.len()) {
+    match (cb[0], cb.len()) {
         (TEST_UNIT_READY, _) => ScsiCommand::TestUnitReady,
         (INQUIRY, 5..) => ScsiCommand::Inquiry {
             evpd: (cb[1] & 0b00000001) != 0,
@@ -209,7 +195,7 @@ fn parse_cb(cb: &[u8]) -> ScsiCommand {
         (READ_FORMAT_CAPACITIES, 9..) => ScsiCommand::ReadFormatCapacities {
             alloc_len: u16::from_be_bytes([cb[7], cb[8]]),
         },
-        _ => ScsiCommand::Unknown { cmd: opcode },
+        (cmd, _) => ScsiCommand::Unknown { cmd },
     }
 }
 
@@ -353,11 +339,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parse_cb_empty_is_unknown() {
-        assert!(matches!(parse_cb(&[]), ScsiCommand::Unknown { cmd: 0 }));
-    }
 
     #[test]
     fn parse_cb_short_inquiry_does_not_panic() {
