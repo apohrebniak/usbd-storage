@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bounds-check the SCSI CDB parse against short command blocks (https://github.com/apohrebniak/usbd-storage/pull/24)
 - Remove panic paths from the Bulk Only Transport (https://github.com/apohrebniak/usbd-storage/pull/25)
 - Rust 2024 edition (https://github.com/apohrebniak/usbd-storage/pull/22)
 - Fix unsoundness issue in internal use of `BulkOnly`s buffer (https://github.com/apohrebniak/usbd-storage/pull/21)
