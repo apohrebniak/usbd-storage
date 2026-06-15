@@ -34,6 +34,18 @@ macro_rules! debug {
     };
 }
 
+macro_rules! warning {
+    ($s:literal $(, $x:expr)* $(,)?) => {
+        {
+            #[cfg(feature = "defmt")]
+            ::defmt::warn!($s $(, $x)*);
+            #[cfg(not(feature="defmt"))]
+            let _ = ($( & $x ),*);
+        }
+    };
+}
+
 pub(crate) use debug;
 pub(crate) use info;
 pub(crate) use trace;
+pub(crate) use warning;
