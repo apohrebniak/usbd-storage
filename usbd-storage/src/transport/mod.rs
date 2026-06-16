@@ -3,7 +3,7 @@
 use core::fmt::Debug;
 use usb_device::UsbError;
 use usb_device::bus::UsbBus;
-use usb_device::class::ControlIn;
+use usb_device::class::{ControlIn, ControlOut};
 use usb_device::descriptor::DescriptorWriter;
 
 #[cfg(feature = "bbb")]
@@ -31,6 +31,9 @@ pub trait Transport {
 
     /// Called when a control request is received with direction DeviceToHost.
     fn control_in(&mut self, xfer: ControlIn<Self::Bus>);
+
+    /// Called when a control request is received with direction HostToDevice.
+    fn control_out(&mut self, xfer: ControlOut<Self::Bus>);
 }
 
 /// Generic error type that could be used by [Transport] impls.

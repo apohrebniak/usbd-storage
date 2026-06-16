@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Do not halt bulk-IN on a passed short read (BOT 6.7.2 case 5); on a genuine stall, defer the CSW until the host clears the bulk-endpoint halt (https://github.com/apohrebniak/usbd-storage/pull/23)
 - Bounds-check the SCSI CDB parse against short command blocks (https://github.com/apohrebniak/usbd-storage/pull/24)
 - Remove panic paths from the Bulk Only Transport (https://github.com/apohrebniak/usbd-storage/pull/25)
 - Rust 2024 edition (https://github.com/apohrebniak/usbd-storage/pull/22)

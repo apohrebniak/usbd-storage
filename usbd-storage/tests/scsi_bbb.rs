@@ -60,11 +60,11 @@ fn should_fail_reading_data_from_host_without_bytes_read() {
         ),
         Step::DevIo,
         Step::HostIo(|bus: &DummyUsbBus| {
-            let expected_csw = Csw {
-                data_transfer_len: 512,
-                status: CommandStatus::PhaseError,
-            };
-            assert_eq!(expected_csw, bus.read_cs().unwrap());
+            // Per upstream #26 a short host-to-device phase stalls the bulk-OUT
+            // endpoint and the CSW is withheld until the host clears the endpoint
+            // halt (CLEAR_FEATURE), so no CSW is available yet. The clear-halt ->
+            // CSW delivery path needs a control-transfer harness (follow-up).
+            assert!(bus.read_cs().is_none());
         }),
     ] }
 }
@@ -117,11 +117,11 @@ fn should_phase_fail_reading_data_from_host_trying_to_pass_without_bytes_read() 
         ),
         Step::DevIo,
         Step::HostIo(|bus: &DummyUsbBus| {
-            let expected_csw = Csw {
-                data_transfer_len: 512,
-                status: CommandStatus::PhaseError,
-            };
-            assert_eq!(expected_csw, bus.read_cs().unwrap());
+            // Per upstream #26 a short host-to-device phase stalls the bulk-OUT
+            // endpoint and the CSW is withheld until the host clears the endpoint
+            // halt (CLEAR_FEATURE), so no CSW is available yet. The clear-halt ->
+            // CSW delivery path needs a control-transfer harness (follow-up).
+            assert!(bus.read_cs().is_none());
         }),
     ] }
 }
@@ -146,11 +146,11 @@ fn should_fail_in_the_middle_writing_data_to_host() {
         Step::DevIo,
         Step::HostIo(|bus: &DummyUsbBus| {
             assert_eq!(256, bus.read_n_bytes(256).len()); // skip data bytes
-            let expected_csw = Csw {
-                data_transfer_len: 256,
-                status: CommandStatus::Failed,
-            };
-            assert_eq!(expected_csw, bus.read_cs().unwrap());
+            // Per upstream #26 a short device-to-host phase stalls the bulk-IN
+            // endpoint and the CSW is withheld until the host clears the endpoint
+            // halt (CLEAR_FEATURE), so no CSW is available yet. The clear-halt ->
+            // CSW delivery path needs a control-transfer harness (follow-up).
+            assert!(bus.read_cs().is_none());
         }),
     ] }
 }
