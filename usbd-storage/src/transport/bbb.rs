@@ -7,10 +7,10 @@ use core::borrow::BorrowMut;
 use core::cmp::min;
 use usb_device::UsbError;
 use usb_device::bus::{UsbBus, UsbBusAllocator};
-use usb_device::class::ControlIn;
+use usb_device::class::{ControlIn, ControlOut};
 use usb_device::class_prelude::DescriptorWriter;
-use usb_device::control::{Recipient, RequestType};
-use usb_device::endpoint::{Endpoint, In, Out};
+use usb_device::control::{Request, Recipient, RequestType};
+use usb_device::endpoint::{Endpoint, EndpointAddress, In, Out};
 
 /// Bulk Only Transport interface protocol
 pub(crate) const TRANSPORT_BBB: u8 = 0x50;
@@ -59,6 +59,7 @@ enum State {
     DataTransferFromHost, // reading bytes from host
     DataTransferNoData,   // data transfer not expected
     StatusTransfer,       // writing CSW packets
+    StatusTransferEpStall,
 }
 
 #[repr(u8)]
@@ -369,15 +370,18 @@ where
     }
 
     fn end_data_transfer(&mut self) -> BulkOnlyTransportResult<()> {
+        let mut in_ep_stall = false;
+
         // spec. 6.7.2 and 6.7.3
         if self.cbw.data_transfer_len > 0 {
             match self.state {
                 State::DataTransferToHost => {
-                    //TODO: send zlp right here
                     self.stall_in_ep();
+                    in_ep_stall = true;
                 }
                 State::DataTransferFromHost => {
                     self.stall_out_ep();
+                    in_ep_stall = true;
                 }
                 _ => {}
             }
@@ -392,8 +396,14 @@ where
         self.buf.clean();
         self.buf.write(csw.as_slice());
 
-        self.enter_state(State::StatusTransfer);
-        self.write() // flush
+        if !in_ep_stall {
+            self.enter_state(State::StatusTransfer);
+            self.write()?; // try writing CSW immediately
+        } else {
+            self.enter_state(State::StatusTransferEpStall);
+        }
+
+        Ok(())
     }
 
     #[inline]
@@ -571,7 +581,7 @@ where
             return;
         }
 
-        info!("usb: bbb: Recv ctrl_in: {}", req);
+        trace!("usb: bbb: Recv ctrl_in: {}", req);
 
         match req.request {
             // Spec. section 3.1
@@ -586,6 +596,32 @@ where
                 }
             }
             _ => {}
+        }
+    }
+
+    fn control_out(&mut self, xfer: ControlOut<Self::Bus>) {
+        let req = xfer.request();
+
+        if req.request_type == RequestType::Standard && req.recipient == Recipient::Endpoint && req.request == Request::CLEAR_FEATURE && req.value == Request::FEATURE_ENDPOINT_HALT {
+
+            if self.in_ep.address() == EndpointAddress::from(req.index as u8) {
+                trace!("usb: bbb: Recv ENDPOINT_HALT for IN ep");
+
+                //if let State::StatusTransfer = self.state {
+                    if let Err(err) = xfer.accept() {
+                        warning!("usb: bbb: ENDPOINT_HALT accept failed: {}", err);
+                    } else {
+                        self.in_ep.unstall();
+                        self.enter_state(State::StatusTransfer); // TODO YOLO
+                        if let Err(err) = self.write() {
+                            warning!("usb: bbb: CSW write failed: {}", err);
+                        }
+                    }
+
+                //} else {
+                 //   warning!("usb: bbb: Not in Status Transfer");
+                //}
+            }
         }
     }
 }
