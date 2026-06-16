@@ -60,6 +60,7 @@ enum State {
     DataTransferNoData,   // data transfer not expected
     StatusTransfer,       // writing CSW packets
     StatusTransferEpStall,
+    DataTransferToHostMustStall,
 }
 
 #[repr(u8)]
@@ -94,6 +95,8 @@ pub struct BulkOnly<'alloc, Bus: UsbBus, Buf: BorrowMut<[u8]>> {
     cbw: CommandBlockWrapper,
     cs: Option<CommandStatus>,
     max_lun: u8,
+
+    halt: bool,
 }
 
 impl<'alloc, Bus, Buf> BulkOnly<'alloc, Bus, Buf>
@@ -143,6 +146,7 @@ where
             cbw: Default::default(),
             cs: Default::default(),
             max_lun,
+            halt: false,
         })
     }
 
@@ -157,6 +161,10 @@ where
 
     /// Drives a transport by writing a single packet
     pub fn write(&mut self) -> BulkOnlyTransportResult<()> {
+        if self.halt {
+            trace!("HALT");
+            return Ok(());
+        }
         match self.state {
             State::StatusTransfer => self.handle_write_csw(),
             State::DataTransferToHost => self.handle_write_to_host(),
@@ -327,13 +335,19 @@ where
 
         if full_packet_or_zero {
             // attempt to send data from buffer if any
+            let mut count = 0;
             if self.buf.available_read() > 0 {
-                let count = self.write_packet()?; // propagate if error
+                count = self.write_packet()?; // propagate if error
                 self.cbw.data_transfer_len =
                     self.cbw.data_transfer_len.saturating_sub(count as u32);
                 trace!("usb: bbb: Data residue: {}", self.cbw.data_transfer_len);
             }
-            self.check_end_data_transfer()
+            // do not end if sent someting
+            if count == 0 {
+                self.check_end_data_transfer()
+            } else {
+                Ok(())
+            }
         } else {
             Err(TransportError::Error(BulkOnlyError::FullPacketExpected))
         }
@@ -376,12 +390,22 @@ where
         if self.cbw.data_transfer_len > 0 {
             match self.state {
                 State::DataTransferToHost => {
+
+
+                    // I cannot stall ep now whilst I might have scheduled an IN paket.
+                    // If there is an IN packet in flight {
+                    //      must wait for it to finish
+                    //      then stall
+                    // } else {
+                    //      can stall now
+                    // }
+
                     self.stall_in_ep();
                     in_ep_stall = true;
+
                 }
                 State::DataTransferFromHost => {
                     self.stall_out_ep();
-                    in_ep_stall = true;
                 }
                 _ => {}
             }
@@ -608,20 +632,42 @@ where
                 trace!("usb: bbb: Recv ENDPOINT_HALT for IN ep");
 
                 //if let State::StatusTransfer = self.state {
+                        self.in_ep.unstall();
                     if let Err(err) = xfer.accept() {
                         warning!("usb: bbb: ENDPOINT_HALT accept failed: {}", err);
                     } else {
-                        self.in_ep.unstall();
+
+                        // it was STALL, now switch to status and then write CSW on the next POLL
+
                         self.enter_state(State::StatusTransfer); // TODO YOLO
-                        if let Err(err) = self.write() {
-                            warning!("usb: bbb: CSW write failed: {}", err);
-                        }
+                        trace!("JOOOOOPA");
+
+                //        if let Err(err) = self.write() {
+                 //           warning!("usb: bbb: CSW write failed: {}", err);
+                  //      }
                     }
 
                 //} else {
                  //   warning!("usb: bbb: Not in Status Transfer");
                 //}
             }
+        }
+    }
+
+    // This means that the packet has been sent
+    fn endpoint_in_complete(&mut self, addr: EndpointAddress) {
+        if self.in_ep.address() == addr {
+            trace!("EP_IN in complete");
+        } else if self.out_ep.address() == addr {
+            trace!("EP_OUT in complete");
+        }
+    }
+
+    fn endpoint_out(&mut self, addr: EndpointAddress) {
+        if self.in_ep.address() == addr {
+            trace!("EP_IN out");
+        } else if self.out_ep.address() == addr {
+            trace!("EP_OUT out");
         }
     }
 }

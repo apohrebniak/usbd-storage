@@ -5,6 +5,7 @@ use usb_device::UsbError;
 use usb_device::bus::UsbBus;
 use usb_device::class::{ControlIn, ControlOut};
 use usb_device::descriptor::DescriptorWriter;
+use usb_device::endpoint::EndpointAddress;
 
 #[cfg(feature = "bbb")]
 pub mod bbb;
@@ -34,6 +35,10 @@ pub trait Transport {
 
     /// Called when a control request is received with direction HostToDevice.
     fn control_out(&mut self, xfer: ControlOut<Self::Bus>);
+
+    fn endpoint_in_complete(&mut self, addr: EndpointAddress);
+
+    fn endpoint_out(&mut self, addr: EndpointAddress);
 }
 
 /// Generic error type that could be used by [Transport] impls.

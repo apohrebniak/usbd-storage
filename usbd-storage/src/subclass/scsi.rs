@@ -8,9 +8,11 @@ use usb_device::bus::InterfaceNumber;
 use usb_device::bus::UsbBus;
 use usb_device::class::{ControlIn, ControlOut, UsbClass};
 use usb_device::descriptor::DescriptorWriter;
+use usb_device::endpoint::EndpointAddress;
+
 #[cfg(feature = "bbb")]
 use {
-    crate::fmt::debug,
+    crate::fmt::{debug, trace},
     crate::subclass::Command,
     crate::transport::TransportError,
     crate::transport::bbb::{BulkOnly, BulkOnlyError},
@@ -252,6 +254,8 @@ impl<'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>> Scsi<BulkOnly<'alloc, B
     where
         F: FnMut(Command<ScsiCommand, Scsi<BulkOnly<'alloc, Bus, Buf>>>),
     {
+        trace!("usb: scsi: poll");
+
         fn map_ignore<T>(res: Result<T, TransportError<BulkOnlyError>>) -> Result<(), UsbError> {
             match res {
                 Ok(_)
@@ -337,6 +341,14 @@ where
 
     fn control_out(&mut self, xfer: ControlOut<Bus>) {
         self.transport.control_out(xfer)
+    }
+
+    fn endpoint_in_complete(&mut self, addr: EndpointAddress) {
+        self.transport.endpoint_in_complete(addr)
+    }
+
+    fn endpoint_out(&mut self, addr: EndpointAddress) {
+        self.transport.endpoint_out(addr)
     }
 }
 
