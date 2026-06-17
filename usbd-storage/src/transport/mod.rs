@@ -30,15 +30,18 @@ pub trait Transport {
     /// Called after a USB reset after the bus reset sequence is complete.
     fn reset(&mut self);
 
-    /// Called when a control request is received with direction DeviceToHost.
     fn control_in(&mut self, xfer: ControlIn<Self::Bus>);
 
-    /// Called when a control request is received with direction HostToDevice.
     fn control_out(&mut self, xfer: ControlOut<Self::Bus>);
 
     fn endpoint_in_complete(&mut self, addr: EndpointAddress);
 
     fn endpoint_out(&mut self, addr: EndpointAddress);
+
+    /// Drives the IO.
+    ///
+    /// Called when there might be data to read or write
+    fn poll(&mut self);
 }
 
 /// Generic error type that could be used by [Transport] impls.
