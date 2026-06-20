@@ -140,7 +140,7 @@ fn main() -> ! {
             })
         }
 
-        let _ = scsi.poll(|command| {
+        let _ = scsi.poll_2(|command| {
             led.set_low();
             if let Err(err) = process_command(command) {
                 defmt::error!("{}", err);
