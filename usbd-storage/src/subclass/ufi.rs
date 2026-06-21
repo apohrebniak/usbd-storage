@@ -248,6 +248,8 @@ impl<'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>> Ufi<BulkOnly<'alloc, Bu
     where
         F: FnMut(Command<UfiCommand, Ufi<BulkOnly<'alloc, Bus, Buf>>>),
     {
+        todo!();
+        /*
         fn map_ignore<T>(res: Result<T, TransportError<BulkOnlyError>>) -> Result<(), UsbError> {
             match res {
                 Ok(_)
@@ -297,6 +299,7 @@ impl<'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>> Ufi<BulkOnly<'alloc, Bu
         }
 
         Ok(())
+            */
     }
 }
 

@@ -41,6 +41,9 @@ pub trait Transport {
     /// Drives the IO.
     ///
     /// Called when there might be data to read or write
+    ///
+    /// TODO: This method MUST be called. The "IN complete" event could be thought of as some data
+    /// passed along with "poll" and it doesn't change state!
     fn poll(&mut self);
 }
 

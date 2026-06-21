@@ -250,23 +250,12 @@ impl<'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>> Scsi<BulkOnly<'alloc, B
     ///
     /// # Arguments
     /// * `callback` - closure, in which the SCSI command is processed
-    pub fn poll<F>(&mut self, mut callback: F) -> Result<(), UsbError>
+    // TODO doc
+    pub fn poll_2<F>(&mut self, mut callback: F) -> Result<(), UsbError>
     where
         F: FnMut(Command<ScsiCommand, Scsi<BulkOnly<'alloc, Bus, Buf>>>),
     {
         trace!("usb: scsi: poll");
-
-        fn map_ignore<T>(res: Result<T, TransportError<BulkOnlyError>>) -> Result<(), UsbError> {
-            match res {
-                Ok(_)
-                | Err(TransportError::Usb(UsbError::WouldBlock))
-                | Err(TransportError::Error(_)) => Ok(()),
-                Err(TransportError::Usb(err)) => Err(err),
-            }
-        }
-        // drive transport in both directions before user action
-        map_ignore(self.transport.read())?;
-        map_ignore(self.transport.write())?;
 
         if let Some(raw_cb) = self.transport.get_command() {
             // exec callback only if user action required
@@ -276,30 +265,14 @@ impl<'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>> Scsi<BulkOnly<'alloc, B
 
                 debug!("usb: scsi: Command: {}", kind);
 
-                loop {
+                //loop {
                     callback(Command {
                         class: self,
                         kind,
                         lun,
                     });
-
-                    // drive transport in both directions after user action.
-                    // exec callback if not enough data
-                    match self.transport.write() {
-                        Err(TransportError::Error(BulkOnlyError::FullPacketExpected)) => {
-                            continue;
-                        }
-                        Ok(_)
-                        | Err(TransportError::Error(_))
-                        | Err(TransportError::Usb(UsbError::WouldBlock)) => { /* ignore */ }
-                        Err(TransportError::Usb(err)) => {
-                            return Err(err);
-                        }
-                    };
-                    map_ignore(self.transport.read())?;
-
-                    break;
-                }
+                    let todo = self.transport.poll();
+                //}
             }
         }
 
@@ -349,6 +322,10 @@ where
 
     fn endpoint_out(&mut self, addr: EndpointAddress) {
         self.transport.endpoint_out(addr)
+    }
+
+    fn poll(&mut self) {
+        let _ = self.transport.poll();
     }
 }
 
