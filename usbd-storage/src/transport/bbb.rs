@@ -73,13 +73,9 @@ enum State {
     DataTransferToHostEnding,
     /// Fill data that's left
     DataTransferToHostFill,
-
-
-
-
-
-
-    DataTransferFromHost, // reading bytes from host
+    /// Actively reads data from host
+    DataTransferFromHost,
+    DataTransferFromHostEnding,
 }
 
 #[repr(u8)]
@@ -212,14 +208,15 @@ where
     ///
     /// [BulkOnlyError::InvalidState]: crate::transport::bbb::BulkOnlyError::InvalidState
     pub fn read_data(&mut self, dst: &mut [u8]) -> BulkOnlyTransportResult<usize> {
+        /*
         if !matches!(self.state, State::DataTransferFromHost) {
             return Err(TransportError::Error(BulkOnlyError::InvalidState));
         }
+        */
         // The closure always returns Ok, so the outer Result is always Ok too.
         Ok(self
             .buf
             .read(|buf| {
-                // fill 'dst' or however much is in 'buf'
                 let size = min(dst.len(), buf.len());
                 dst[..size].copy_from_slice(&buf[..size]);
                 Ok::<usize, core::convert::Infallible>(size)
@@ -321,9 +318,14 @@ where
         self.state = State::DataTransferToHostEnding;
         trace!("usb: bbb: enter {:?}", self.state);
     }
+
+    fn enter_state_data_transfer_from_host_ending(&mut self) {
+        self.state = State::DataTransferFromHostEnding;
+        trace!("usb: bbb: enter {:?}", self.state);
+    }
     
-    fn enter_state_data_transfer_to_host_fill(&mut self) {
-        self.state = State::DataTransferToHostFill;
+    fn enter_state_data_transfer_from_host(&mut self) {
+        self.state = State::DataTransferFromHost;
         trace!("usb: bbb: enter {:?}", self.state);
     }
 
@@ -445,6 +447,7 @@ where
     }
 
     /// Just wait for the status
+    // TODO rename
     fn handle_data_transfer_to_host_status_await(&mut self) -> BulkOnlyTransportResult<()> {
         assert_matches!(self.state, State::DataTransferToHostStatusAwait);
         
@@ -489,6 +492,48 @@ where
         Ok(())
     }
 
+    /// Actively keep reading bytes if there is no status set
+    fn handle_data_transfer_from_host(&mut self) -> BulkOnlyTransportResult<()> {
+        assert_matches!(self.state, State::DataTransferFromHost);
+
+        // data is all read. wait for the status
+        if self.data_residue() == 0 {
+            self.enter_state_data_transfer_to_host_status_await();
+            self.handle_data_transfer_to_host_status_await()?;
+            return Ok(());
+        }
+
+        // status is set. read to the end still
+        if self.has_status() {
+            self.enter_state_data_transfer_from_host_ending();
+            self.handle_data_transfer_from_host_ending()?;
+            return Ok(());
+        }
+
+        let bytes_read = self.read_packet()?; // TODO what if did not fit?
+        self.decrease_data_residue_by(bytes_read as u32);
+
+        Ok(())
+    }
+
+    // keep reading bytes until
+    // self.fill_bytes = self.data_residue();
+    fn handle_data_transfer_from_host_ending(&mut self) -> BulkOnlyTransportResult<()> {
+        assert_matches!(self.state, State::DataTransferFromHostEnding);
+
+        if self.filled_bytes > 0 {
+            let bytes_read = self.read_packet()?;
+            self.filled_bytes = self.filled_bytes.saturating_sub(bytes_read as u32);
+
+            self.buf.clean(); // no one is going to read this data anyway
+
+            Ok(())
+        } else {
+            self.enter_state_status_transfer();
+            self.handle_status_transfer()
+        }
+    }
+
     fn build_csw(&mut self) -> Option<[u8; CSW_LEN]> {
         self.cs.map(|status| {
             let mut csw = [0u8; CSW_LEN];
@@ -529,7 +574,8 @@ where
 
         match cbw.direction {
             DataDirection::Out => {
-                unimplemented!()
+                self.enter_state_data_transfer_from_host();
+                self.handle_data_transfer_from_host()
             }
             DataDirection::In => {
                 self.enter_state_data_transfer_to_host();
@@ -707,6 +753,8 @@ where
             State::DataTransferToHost => self.handle_data_transfer_to_host(),
             State::DataTransferToHostStatusAwait => self.handle_data_transfer_to_host_status_await(),
             State::DataTransferToHostEnding => self.handle_data_transfer_to_host_ending(),
+            State::DataTransferFromHost => self.handle_data_transfer_from_host(),
+            State::DataTransferFromHostEnding => self.handle_data_transfer_from_host_ending(),
             State::StatusTransfer => self.handle_status_transfer(),
             _ => unimplemented!(),
         };

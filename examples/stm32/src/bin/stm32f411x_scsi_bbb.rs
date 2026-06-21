@@ -23,7 +23,7 @@ static mut USB_EP_MEMORY: [u32; 1024] = [0u32; 1024];
 /// Not necessarily `'static`. May reside in some special memory location
 static mut USB_TRANSPORT_BUF: MaybeUninit<[u8; 512]> = MaybeUninit::uninit();
 
-static FAT: &[u8; 102400] = include_bytes!("../../empty_fat32.img");
+static FAT: &[u8; 102400] = include_bytes!("../../empty_fat12.img");
 
 static STORAGE: Mutex<RefCell<[u8; (BLOCKS * BLOCK_SIZE) as usize]>> =
     Mutex::new(RefCell::new([0u8; (BLOCK_SIZE * BLOCKS) as usize]));
