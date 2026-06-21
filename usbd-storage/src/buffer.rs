@@ -71,6 +71,17 @@ impl<T: BorrowMut<[u8]>> Buffer<T> {
         })
     }
 
+    pub fn fill_up_to(&mut self, value: u8, up_to: usize) {
+        if self.available_write() < up_to {
+            self.shift();
+        }
+        let count = min(self.available_write(), up_to);
+        let inner = self.inner.borrow_mut();
+        inner[self.wpos..(self.wpos + count)].fill(value);
+        self.wpos += count;
+        debug_assert!(self.wpos <= inner.len());
+    }
+
     pub fn clean(&mut self) {
         self.rpos = 0;
         self.wpos = 0;
