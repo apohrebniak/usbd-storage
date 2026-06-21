@@ -477,7 +477,7 @@ where
         assert_matches!(self.state, State::DataTransferToHostStallClearAwait);
 
         // until unstalled and host knows about it
-        if !self.is_in_ep_stall && !self.in_packet_in_flight {
+        if !self.is_in_ep_stall {
             self.enter_state_status_transfer();
             self.handle_status_transfer()?;
         }
@@ -735,10 +735,9 @@ where
         self.in_packet_in_flight = true;
 
         // TODO uh it picks up the status transfer too. needs to be elsewhere
+        trace!("usb: bbb: Data residue: {}", self.cbw.data_transfer_len);
         self.cbw.data_transfer_len =
             self.cbw.data_transfer_len.saturating_sub(bytes_written as u32);
-
-        trace!("usb: bbb: Data residue: {}", self.cbw.data_transfer_len);
 
         Ok(bytes_written)
     }
@@ -767,7 +766,7 @@ where
 
     #[inline]
     fn unstall_in_ep(&mut self) {
-        self.in_ep.unstall();
+        //self.in_ep.unstall();
         self.is_in_ep_stall = false;
         trace!("usb: bbb: Unstall IN EP");
     }
@@ -837,7 +836,6 @@ where
             if self.in_ep.address() == EndpointAddress::from(req.index as u8) {
                 trace!("usb: bbb: Recv ENDPOINT_HALT for IN ep");
                 self.unstall_in_ep();
-                self.in_packet_in_flight = true; // TODO not really IN but ok
 
                 if let Err(err) = xfer.accept() {
                     warning!("usb: bbb: ENDPOINT_HALT accept failed: {}", err);
@@ -849,7 +847,6 @@ where
 
     // the packet has been sent
     fn endpoint_in_complete(&mut self, addr: EndpointAddress) {
-            debug!("HELOOOO {}", addr);
         /*
         self.in_packet_in_flight = false;
         // stall reset confirmation
@@ -887,7 +884,7 @@ where
         // Spec. 3.3
         // "The host may request Data-In or CSW before sending the associated CBW."
         // Ignore that
-
+        
         match self.state {
             State::CommandTransfer => self.handle_read_cbw(),
             State::CommandTransferInvalid => self.handle_cbw_invalid(),
