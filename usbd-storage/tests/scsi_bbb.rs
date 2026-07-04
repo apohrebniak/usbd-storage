@@ -9,6 +9,7 @@ use usb_device::device::{UsbDeviceBuilder, UsbVidPid};
 use usbd_storage::subclass::Command;
 use usbd_storage::subclass::scsi::{Scsi, ScsiCommand};
 use usbd_storage::transport::bbb::BulkOnly;
+use usb_device::class::UsbClass;
 
 const TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -137,6 +138,7 @@ fn should_fail_in_the_middle_writing_data_to_host() {
             };
             bus.write_cbw(cbw);
         }),
+        Step::DevIo,
         Step::DevCmdHandle(
             |mut cmd: Command<ScsiCommand, Scsi<BulkOnly<DummyUsbBus, &mut [u8]>>>| {
                 assert_eq!(256, cmd.write_data([0xFFu8; 256].as_slice()).unwrap());

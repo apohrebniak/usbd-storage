@@ -9,10 +9,10 @@ use usb_device::bus::UsbBus;
 use usb_device::class::{ControlIn, UsbClass};
 use usb_device::descriptor::DescriptorWriter;
 use crate::transport::TransportError;
-
+use crate::fmt::{debug, trace};
+    
 #[cfg(feature = "bbb")]
 use {
-    crate::fmt::{debug, trace},
     crate::subclass::Command,
     crate::transport::bbb::{BulkOnly, BulkOnlyError},
     core::borrow::BorrowMut,

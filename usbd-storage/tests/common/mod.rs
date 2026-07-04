@@ -38,7 +38,7 @@ macro_rules! run_on_scsi_bbb_bus_timed {
                         Step::DevIo => {
                             let mut bytes_processed = dummy_bus.bytes_processed();
                             loop {
-                                scsi.poll(|_| {}).unwrap();
+                                scsi.poll();
                                 let new = dummy_bus.bytes_processed();
                                 if new == bytes_processed {
                                     break;
@@ -53,11 +53,11 @@ macro_rules! run_on_scsi_bbb_bus_timed {
                         Step::DevCmdHandle(func) => {
                             let mut command_processed = false;
                             loop {
-                                scsi.poll(|command| {
+                                let _ = scsi.poll_command(|command| {
                                     func(command);
                                     command_processed = true;
-                                })
-                                    .unwrap();
+                                    Ok(())
+                                });
 
                                 if command_processed {
                                     break;
