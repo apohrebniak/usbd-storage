@@ -20,3 +20,4 @@ If you want to create a U2F file to manually copy/distribute:
 
 - `cargo b --release`
 - `picotool uf2 convert -t elf target/thumbv6m-none-eabi/release/rp2040_scsi_bbb rp2040_scsi_bbb.uf2`
+

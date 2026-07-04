@@ -176,3 +176,4 @@ mod tests {
         assert_eq!(0, buf.available_write());
     }
 }
+

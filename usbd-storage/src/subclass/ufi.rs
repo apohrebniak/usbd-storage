@@ -4,16 +4,16 @@ use crate::CLASS_MASS_STORAGE;
 use crate::transport::Transport;
 use usb_device::bus::InterfaceNumber;
 use usb_device::bus::UsbBus;
-use usb_device::class::{ControlIn, ControlOut, UsbClass};
+use usb_device::class::{ControlIn, UsbClass};
 use usb_device::descriptor::DescriptorWriter;
+use crate::transport::TransportError;
+
 #[cfg(feature = "bbb")]
 use {
-    crate::fmt::debug,
+    crate::fmt::{debug, trace},
     crate::subclass::Command,
-    crate::transport::TransportError,
     crate::transport::bbb::{BulkOnly, BulkOnlyError},
     core::borrow::BorrowMut,
-    usb_device::UsbError,
     usb_device::bus::UsbBusAllocator,
 };
 
@@ -237,30 +237,18 @@ impl<'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>> Ufi<BulkOnly<'alloc, Bu
         })
     }
 
-    /// Drive subclass in both directions
-    ///
-    /// The passed closure may or may not be called after each time this function is called.
-    /// Moreover, it may be called multiple times, if subclass is unable to proceed further.
+
+    /// Poll current UFI command
     ///
     /// # Arguments
-    /// * `callback` - closure, in which the SCSI command is processed
-    pub fn poll<F>(&mut self, mut callback: F) -> Result<(), UsbError>
+    /// * `callback` - closure, in which the UFI command is processed. If there 
+    /// is no current command available or it doesn't require any input, this
+    /// callback is *not* called.
+    pub fn poll_command<F>(&mut self, mut callback: F) -> Result<(), TransportError<BulkOnlyError>>
     where
-        F: FnMut(Command<UfiCommand, Ufi<BulkOnly<'alloc, Bus, Buf>>>),
+        F: FnMut(Command<UfiCommand, Ufi<BulkOnly<'alloc, Bus, Buf>>>) -> Result<(), TransportError<BulkOnlyError>>,
     {
-        todo!();
-        /*
-        fn map_ignore<T>(res: Result<T, TransportError<BulkOnlyError>>) -> Result<(), UsbError> {
-            match res {
-                Ok(_)
-                | Err(TransportError::Usb(UsbError::WouldBlock))
-                | Err(TransportError::Error(_)) => Ok(()),
-                Err(TransportError::Usb(err)) => Err(err),
-            }
-        }
-        // drive transport in both directions before user action
-        map_ignore(self.transport.read())?;
-        map_ignore(self.transport.write())?;
+        trace!("usb: ufi: poll_command");
 
         if let Some(raw_cb) = self.transport.get_command() {
             // exec callback only if user action required
@@ -268,38 +256,19 @@ impl<'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>> Ufi<BulkOnly<'alloc, Bu
                 let lun = raw_cb.lun;
                 let kind = parse_cb(raw_cb.bytes);
 
-                debug!("usb: scsi: Command: {}", kind);
+                debug!("usb: ufi: poll_command: Command: {}", kind);
 
-                loop {
-                    let command = Command {
-                        class: self,
-                        kind,
-                        lun,
-                    };
-                    callback(command);
+                callback(Command {
+                    class: self,
+                    kind,
+                    lun,
+                })?;
 
-                    // drive transport in both directions after user action.
-                    // call callback if not enough data
-                    match self.transport.write() {
-                        Err(TransportError::Error(BulkOnlyError::FullPacketExpected)) => {
-                            continue;
-                        }
-                        Ok(_)
-                        | Err(TransportError::Error(_))
-                        | Err(TransportError::Usb(UsbError::WouldBlock)) => { /* ignore */ }
-                        Err(TransportError::Usb(err)) => {
-                            return Err(err);
-                        }
-                    };
-                    map_ignore(self.transport.read())?;
-
-                    break;
-                }
+                self.transport.poll()?;
             }
         }
 
         Ok(())
-            */
     }
 }
 
@@ -334,5 +303,12 @@ where
     fn control_in(&mut self, xfer: ControlIn<Bus>) {
         self.transport.control_in(xfer)
     }
+
+    fn poll(&mut self) {
+        if let Err(err) = self.transport.poll() {
+            trace!("usb: ufi: poll: {}", err);
+        }
+    }
+
 }
 

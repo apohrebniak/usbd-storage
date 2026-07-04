@@ -6,18 +6,16 @@ use core::fmt::Debug;
 use num_enum::TryFromPrimitive;
 use usb_device::bus::InterfaceNumber;
 use usb_device::bus::UsbBus;
-use usb_device::class::{ControlIn, ControlOut, UsbClass};
+use usb_device::class::{ControlIn, UsbClass};
 use usb_device::descriptor::DescriptorWriter;
-use usb_device::endpoint::EndpointAddress;
+use crate::transport::TransportError;
 
 #[cfg(feature = "bbb")]
 use {
     crate::fmt::{debug, trace},
     crate::subclass::Command,
-    crate::transport::TransportError,
     crate::transport::bbb::{BulkOnly, BulkOnlyError},
     core::borrow::BorrowMut,
-    usb_device::UsbError,
     usb_device::bus::UsbBusAllocator,
 };
 
@@ -243,19 +241,17 @@ impl<'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>> Scsi<BulkOnly<'alloc, B
         })
     }
 
-    /// Drive subclass in both directions
-    ///
-    /// The passed closure may or may not be called after each time this function is called.
-    /// Moreover, it may be called multiple times, if subclass is unable to proceed further.
+    /// Poll current SCSI command
     ///
     /// # Arguments
-    /// * `callback` - closure, in which the SCSI command is processed
-    // TODO doc
-    pub fn poll_2<F>(&mut self, mut callback: F) -> Result<(), UsbError>
+    /// * `callback` - closure, in which the SCSI command is processed. If there 
+    /// is no current command available or it doesn't require any input, this
+    /// callback is *not* called.
+    pub fn poll_command<F>(&mut self, mut callback: F) -> Result<(), TransportError<BulkOnlyError>>
     where
-        F: FnMut(Command<ScsiCommand, Scsi<BulkOnly<'alloc, Bus, Buf>>>),
+        F: FnMut(Command<ScsiCommand, Scsi<BulkOnly<'alloc, Bus, Buf>>>) -> Result<(), TransportError<BulkOnlyError>>,
     {
-        trace!("usb: scsi: poll");
+        trace!("usb: scsi: poll_command");
 
         if let Some(raw_cb) = self.transport.get_command() {
             // exec callback only if user action required
@@ -263,16 +259,15 @@ impl<'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>> Scsi<BulkOnly<'alloc, B
                 let lun = raw_cb.lun;
                 let kind = parse_cb(raw_cb.bytes);
 
-                debug!("usb: scsi: Command: {}", kind);
+                debug!("usb: scsi: poll_command: Command: {}", kind);
 
-                //loop {
-                    callback(Command {
-                        class: self,
-                        kind,
-                        lun,
-                    });
-                    let todo = self.transport.poll();
-                //}
+                callback(Command {
+                    class: self,
+                    kind,
+                    lun,
+                })?;
+
+                self.transport.poll()?;
             }
         }
 

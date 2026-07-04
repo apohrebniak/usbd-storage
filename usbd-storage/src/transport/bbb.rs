@@ -262,7 +262,6 @@ where
     }
 
     /// Whether a Command Status has been set
-    // TODO might be private
     pub fn has_status(&self) -> bool {
         self.cs.is_some()
     }

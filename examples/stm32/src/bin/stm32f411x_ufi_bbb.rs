@@ -25,7 +25,7 @@ static mut USB_EP_MEMORY: [u32; 1024] = [0u32; 1024];
 /// Not necessarily `'static`. May reside in some special memory location
 static mut USB_TRANSPORT_BUF: MaybeUninit<[u8; 512]> = MaybeUninit::uninit();
 
-static FAT: &[u8] = include_bytes!("../../cat_fat12.img"); // part of fat12 fs with some data
+static FAT: &[u8] = include_bytes!("../../empty_fat12.img");
 
 static STATE: Mutex<RefCell<State>> = Mutex::new(RefCell::new(State {
     storage_offset: 0,
@@ -131,12 +131,12 @@ fn main() -> ! {
             })
         }
 
-        let _ = ufi.poll(|command| {
+        if let Err(err) = ufi.poll_command(|command| {
             led.set_low();
-            if let Err(err) = process_command(command) {
-                defmt::error!("{}", err);
-            }
-        });
+            process_command(command)
+        }) {
+            defmt::error!("{}", err);
+        }
     }
 }
 
