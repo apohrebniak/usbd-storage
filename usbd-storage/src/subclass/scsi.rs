@@ -312,18 +312,6 @@ where
         self.transport.control_in(xfer)
     }
 
-    fn control_out(&mut self, xfer: ControlOut<Bus>) {
-        self.transport.control_out(xfer)
-    }
-
-    fn endpoint_in_complete(&mut self, addr: EndpointAddress) {
-        self.transport.endpoint_in_complete(addr)
-    }
-
-    fn endpoint_out(&mut self, addr: EndpointAddress) {
-        self.transport.endpoint_out(addr)
-    }
-
     fn poll(&mut self) {
         let _ = self.transport.poll();
     }
@@ -417,3 +405,4 @@ mod tests {
         ));
     }
 }
+

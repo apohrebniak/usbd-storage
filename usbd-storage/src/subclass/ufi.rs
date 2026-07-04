@@ -334,8 +334,5 @@ where
     fn control_in(&mut self, xfer: ControlIn<Bus>) {
         self.transport.control_in(xfer)
     }
-
-    fn control_out(&mut self, xfer: ControlOut<Bus>) {
-        self.transport.control_out(xfer)
-    }
 }
+

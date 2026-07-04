@@ -22,7 +22,9 @@ pub const TRANSPORT_VENDOR_SPECIFIC: u8 = 0xFF;
 pub trait Transport {
     /// Interface protocol code
     const PROTO: u8;
+
     type Bus: UsbBus;
+    type Error: Debug;
 
     /// Registers all required USB **endpoints** using a provided `writer`.
     fn get_endpoint_descriptors(&self, writer: &mut DescriptorWriter) -> Result<(), UsbError>;
@@ -32,19 +34,13 @@ pub trait Transport {
 
     fn control_in(&mut self, xfer: ControlIn<Self::Bus>);
 
-    fn control_out(&mut self, xfer: ControlOut<Self::Bus>);
-
-    fn endpoint_in_complete(&mut self, addr: EndpointAddress);
-
-    fn endpoint_out(&mut self, addr: EndpointAddress);
-
     /// Drives the IO.
     ///
     /// Called when there might be data to read or write
     ///
     /// TODO: This method MUST be called. The "IN complete" event could be thought of as some data
     /// passed along with "poll" and it doesn't change state!
-    fn poll(&mut self);
+    fn poll(&mut self) -> Result<(), TransportError<Self::Error>>;
 }
 
 /// Generic error type that could be used by [Transport] impls.
@@ -69,3 +65,4 @@ pub enum CommandStatus {
     Failed = 0x01,
     PhaseError = 0x02,
 }
+
