@@ -3,9 +3,8 @@
 use core::fmt::Debug;
 use usb_device::UsbError;
 use usb_device::bus::UsbBus;
-use usb_device::class::{ControlIn, ControlOut};
+use usb_device::class::ControlIn;
 use usb_device::descriptor::DescriptorWriter;
-use usb_device::endpoint::EndpointAddress;
 
 #[cfg(feature = "bbb")]
 pub mod bbb;
@@ -24,7 +23,10 @@ pub trait Transport {
     const PROTO: u8;
 
     type Bus: UsbBus;
+    #[cfg(not(feature = "defmt"))]
     type Error: Debug;
+    #[cfg(feature = "defmt")]
+    type Error: Debug + defmt::Format;
 
     /// Registers all required USB **endpoints** using a provided `writer`.
     fn get_endpoint_descriptors(&self, writer: &mut DescriptorWriter) -> Result<(), UsbError>;
@@ -36,10 +38,8 @@ pub trait Transport {
 
     /// Drives the IO.
     ///
-    /// Called when there might be data to read or write
-    ///
-    /// TODO: This method MUST be called. The "IN complete" event could be thought of as some data
-    /// passed along with "poll" and it doesn't change state!
+    /// Must be called as often as possible. Preferrably, from the
+    /// wrapping [usb_device::class:Class::poll]
     fn poll(&mut self) -> Result<(), TransportError<Self::Error>>;
 }
 

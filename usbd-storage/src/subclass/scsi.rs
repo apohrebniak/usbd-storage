@@ -313,7 +313,9 @@ where
     }
 
     fn poll(&mut self) {
-        let _ = self.transport.poll();
+        if let Err(err) = self.transport.poll() {
+            trace!("usb: scsi: poll: {}", err);
+        }
     }
 }
 
