@@ -148,12 +148,12 @@ fn main() -> ! {
             })
         }
 
-        let _ = scsi.poll(|command| {
+        if let Err(err) = scsi.poll_command(|command| {
             led.set_low().unwrap();
-            if let Err(err) = process_command(command) {
-                defmt::error!("{}", err);
-            }
-        });
+            process_command(command)
+        }) {
+            defmt::error!("{}", err);
+        }
     }
 }
 
