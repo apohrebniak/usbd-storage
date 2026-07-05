@@ -761,37 +761,253 @@ impl CommandBlockWrapper {
 
 #[cfg(test)]
 mod tests {
-    use crate::transport::bbb::BulkOnly;
-    use crate::transport::bbb::State::DataTransferFromHost;
-    use usb_device::bus::{PollResult, UsbBus, UsbBusAllocator};
+    use super::*;
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+    use usb_device::UsbDirection;
+    use usb_device::bus::{PollResult, UsbBusAllocator};
     use usb_device::class_prelude::{EndpointAddress, EndpointType};
-    use usb_device::{UsbDirection, UsbError};
+    use usb_device::device::{UsbDeviceBuilder, UsbVidPid};
 
-    struct DummyBus;
+    // The Thirteen Cases (USB Mass Storage Bulk-Only Transport, section 6.7).
 
-    impl UsbBus for DummyBus {
+    // 6.7.1 Hn - host expects no data
+
+    #[test]
+    fn host_expects_no_data_device_sends_no_data() {
+        // Case 1: Hn = Dn
+        for ps in PACKET_SIZES {
+            let (csw, _) = run(ps, 0, Host::ExpectsNoData, |b| {
+                b.set_status(CommandStatus::Passed, 0)
+            });
+            assert_eq!(csw.status, 0, "ps={ps}");
+            assert_eq!(csw.residue, 0, "ps={ps}");
+        }
+    }
+
+    #[test]
+    fn host_expects_no_data_device_wants_to_send() {
+        // Case 2: Hn < Di -> Phase Error
+        for ps in PACKET_SIZES {
+            let (csw, data) = run(ps, 0, Host::ExpectsNoData, |b| {
+                assert!(is_invalid_state(b.write_data(&[0xAA; 8])));
+                b.set_status(CommandStatus::PhaseError, 0);
+            });
+            assert_eq!(csw.status, 0x02, "ps={ps}");
+            assert!(data.is_empty(), "ps={ps}");
+        }
+    }
+
+    #[test]
+    fn host_expects_no_data_device_wants_to_receive() {
+        // Case 3: Hn < Do -> Phase Error
+        for ps in PACKET_SIZES {
+            let (csw, _) = run(ps, 0, Host::ExpectsNoData, |b| {
+                assert!(is_invalid_state(b.read_data(&mut [0u8; 8])));
+                b.set_status(CommandStatus::PhaseError, 0);
+            });
+            assert_eq!(csw.status, 0x02, "ps={ps}");
+        }
+    }
+
+    // 6.7.2 Hi - host expects to receive data from the device
+
+    #[test]
+    fn host_expects_data_in_device_sends_none() {
+        // Case 4: Hi > Dn
+        for ps in PACKET_SIZES {
+            let (csw, data) = run(ps, 32, Host::ExpectsDataIn, |b| {
+                b.set_status(CommandStatus::Passed, 0)
+            });
+            assert_eq!(csw.status, 0, "ps={ps}");
+            assert_eq!(csw.residue, 32, "ps={ps}");
+            assert_eq!(data.len(), 32, "ps={ps}"); // padded with fill bytes
+        }
+    }
+
+    #[test]
+    fn host_expects_more_data_in_than_device_sends() {
+        // Case 5: Hi > Di
+        for ps in PACKET_SIZES {
+            let (csw, data) = run(ps, 32, Host::ExpectsDataIn, |b| {
+                let n = b.write_data(&[0xAA; 16]).unwrap();
+                b.set_status(CommandStatus::Passed, n as u32);
+            });
+            assert_eq!(csw.status, 0, "ps={ps}");
+            assert_eq!(csw.residue, 16, "ps={ps}");
+            assert_eq!(data.len(), 32, "ps={ps}");
+        }
+    }
+
+    #[test]
+    fn host_expects_exactly_what_device_sends() {
+        // Case 6: Hi = Di
+        for ps in PACKET_SIZES {
+            let (csw, data) = run(ps, 32, Host::ExpectsDataIn, |b| {
+                let n = b.write_data(&[0xAA; 32]).unwrap();
+                b.set_status(CommandStatus::Passed, n as u32);
+            });
+            assert_eq!(csw.status, 0, "ps={ps}");
+            assert_eq!(csw.residue, 0, "ps={ps}");
+            assert_eq!(data, vec![0xAA; 32], "ps={ps}");
+        }
+    }
+
+    #[test]
+    fn host_expects_less_data_in_than_device_sends() {
+        // Case 7: Hi < Di -> Phase Error
+        for ps in PACKET_SIZES {
+            let (csw, data) = run(ps, 16, Host::ExpectsDataIn, |b| {
+                let n = b.write_data(&[0xAA; 32]).unwrap(); // capped to dCBWDataTransferLength
+                assert_eq!(n, 16); // device wanted to send more than the host allows
+                b.set_status(CommandStatus::PhaseError, 0);
+            });
+            assert_eq!(csw.status, 0x02, "ps={ps}");
+            assert_eq!(data.len(), 16, "ps={ps}");
+        }
+    }
+
+    #[test]
+    fn host_expects_data_in_device_wants_to_receive() {
+        // Case 8: Hi <> Do -> Phase Error
+        for ps in PACKET_SIZES {
+            let (csw, data) = run(ps, 32, Host::ExpectsDataIn, |b| {
+                assert!(is_invalid_state(b.read_data(&mut [0u8; 32])));
+                b.set_status(CommandStatus::PhaseError, 0);
+            });
+            assert_eq!(csw.status, 0x02, "ps={ps}");
+            assert_eq!(data.len(), 32, "ps={ps}");
+        }
+    }
+
+    // 6.7.3 Ho - host expects to send data to the device
+
+    #[test]
+    fn host_sends_data_device_receives_none() {
+        // Case 9: Ho > Dn
+        for ps in PACKET_SIZES {
+            let (csw, _) = run(ps, 32, Host::ExpectsDataOut, |b| {
+                b.set_status(CommandStatus::Passed, 0)
+            });
+            assert_eq!(csw.status, 0, "ps={ps}");
+            assert_eq!(csw.residue, 32, "ps={ps}");
+        }
+    }
+
+    #[test]
+    fn host_sends_data_device_wants_to_send() {
+        // Case 10: Ho <> Di -> Phase Error
+        for ps in PACKET_SIZES {
+            let (csw, _) = run(ps, 32, Host::ExpectsDataOut, |b| {
+                assert!(is_invalid_state(b.write_data(&[0xAA; 8])));
+                b.set_status(CommandStatus::PhaseError, 0);
+            });
+            assert_eq!(csw.status, 0x02, "ps={ps}");
+        }
+    }
+
+    #[test]
+    fn host_sends_more_data_out_than_device_receives() {
+        // Case 11: Ho > Do
+        for ps in PACKET_SIZES {
+            let (csw, _) = run(ps, 32, Host::ExpectsDataOut, |b| {
+                let n = b.read_data(&mut [0u8; 16]).unwrap();
+                b.set_status(CommandStatus::Passed, n as u32);
+            });
+            assert_eq!(csw.status, 0, "ps={ps}");
+            assert_eq!(csw.residue, 16, "ps={ps}");
+        }
+    }
+
+    #[test]
+    fn host_sends_exactly_what_device_receives() {
+        // Case 12: Ho = Do
+        for ps in PACKET_SIZES {
+            let (csw, _) = run(ps, 32, Host::ExpectsDataOut, |b| {
+                let n = b.read_data(&mut [0u8; 32]).unwrap();
+                b.set_status(CommandStatus::Passed, n as u32);
+            });
+            assert_eq!(csw.status, 0, "ps={ps}");
+            assert_eq!(csw.residue, 0, "ps={ps}");
+        }
+    }
+
+    #[test]
+    fn host_sends_less_data_out_than_device_receives() {
+        // Case 13: Ho < Do -> Phase Error
+        for ps in PACKET_SIZES {
+            let (csw, _) = run(ps, 16, Host::ExpectsDataOut, |b| {
+                let n = b.read_data(&mut [0u8; 32]).unwrap(); // only what the host sent
+                assert_eq!(n, 16); // device wanted to receive more than the host sends
+                b.set_status(CommandStatus::PhaseError, 0);
+            });
+            assert_eq!(csw.status, 0x02, "ps={ps}");
+        }
+    }
+
+    #[test]
+    fn should_read_data_into_small_buffer() {
+        const BUF_SIZE: usize = 512;
+        const N: usize = 123;
+
+        let (_shared, mut bbb) = new_bbb(64);
+        bbb.state = State::DataTransferFromHost;
+        bbb.buf.write([0xFFu8; BUF_SIZE].as_slice()); // fill the buffer
+
+        assert_eq!(N, bbb.read_data([0u8; N].as_mut_slice()).unwrap());
+    }
+
+    // ---- test harness ----
+
+    const PACKET_SIZES: [u16; 4] = [8, 16, 32, 64];
+
+    #[derive(Copy, Clone)]
+    enum Host {
+        ExpectsNoData,
+        ExpectsDataIn,  // device -> host
+        ExpectsDataOut, // host -> device
+    }
+
+    /// Queues shared between the test and the bus moved into the allocator.
+    #[derive(Clone, Default)]
+    struct Shared {
+        out: Arc<Mutex<VecDeque<Vec<u8>>>>, // host -> device packets
+        input: Arc<Mutex<Vec<Vec<u8>>>>,    // device -> host packets
+    }
+
+    struct MockBus {
+        shared: Shared,
+    }
+
+    impl UsbBus for MockBus {
         fn alloc_ep(
             &mut self,
-            _ep_dir: UsbDirection,
+            ep_dir: UsbDirection,
             _ep_addr: Option<EndpointAddress>,
             _ep_type: EndpointType,
             _max_packet_size: u16,
             _interval: u8,
         ) -> usb_device::Result<EndpointAddress> {
-            Ok(EndpointAddress::from(0))
+            Ok(EndpointAddress::from_parts(1, ep_dir))
         }
 
         fn enable(&mut self) {}
-
         fn reset(&self) {}
         fn set_device_address(&self, _addr: u8) {}
 
-        fn write(&self, _ep_addr: EndpointAddress, _buf: &[u8]) -> usb_device::Result<usize> {
-            Err(UsbError::InvalidEndpoint)
+        fn write(&self, _ep_addr: EndpointAddress, buf: &[u8]) -> usb_device::Result<usize> {
+            self.shared.input.lock().unwrap().push(buf.to_vec());
+            Ok(buf.len())
         }
 
-        fn read(&self, _ep_addr: EndpointAddress, _buf: &mut [u8]) -> usb_device::Result<usize> {
-            Err(UsbError::InvalidEndpoint)
+        fn read(&self, _ep_addr: EndpointAddress, buf: &mut [u8]) -> usb_device::Result<usize> {
+            match self.shared.out.lock().unwrap().pop_front() {
+                Some(pkt) => {
+                    buf[..pkt.len()].copy_from_slice(&pkt);
+                    Ok(pkt.len())
+                }
+                None => Err(UsbError::WouldBlock),
+            }
         }
 
         fn set_stalled(&self, _ep_addr: EndpointAddress, _stalled: bool) {}
@@ -805,17 +1021,96 @@ mod tests {
         }
     }
 
-    #[test]
-    fn should_read_data_into_small_buffer() {
-        const BUF_SIZE: usize = 512;
-        const N: usize = 123;
+    type MockBbb = BulkOnly<'static, MockBus, Vec<u8>>;
 
-        let alloc = UsbBusAllocator::new(DummyBus);
-        let mut bbb = BulkOnly::new(&alloc, 8, 0, vec![0u8; BUF_SIZE]).unwrap();
-        bbb.state = DataTransferFromHost;
-        bbb.buf.write([0xFFu8; BUF_SIZE].as_slice()); // fill the buffer
+    fn new_bbb(packet_size: u16) -> (Shared, MockBbb) {
+        let shared = Shared::default();
+        let bus = MockBus {
+            shared: shared.clone(),
+        };
+        let alloc = Box::leak(Box::new(UsbBusAllocator::new(bus)));
+        let bbb = BulkOnly::new(alloc, packet_size, 0, vec![0u8; 512]).unwrap();
+        // Endpoint read/write reach the bus through a pointer set by the allocator's
+        // (crate-private) freeze(); building a device is the only public way to trigger it.
+        core::mem::forget(UsbDeviceBuilder::new(alloc, UsbVidPid(0xabcd, 0xabcd)).build());
+        (shared, bbb)
+    }
 
-        assert_eq!(N, bbb.read_data([0u8; N].as_mut_slice()).unwrap());
+    /// Builds a CBW. `data_len` of 0 yields a no-data command.
+    fn cbw(data_len: u32, host: Host) -> Vec<u8> {
+        let mut c = vec![0u8; CBW_LEN];
+        c[..4].copy_from_slice(&0x43425355u32.to_le_bytes());
+        c[4..8].copy_from_slice(&1u32.to_le_bytes()); // tag
+        c[8..12].copy_from_slice(&data_len.to_le_bytes());
+        c[12] = if matches!(host, Host::ExpectsDataIn) { 0x80 } else { 0x00 };
+        c[14] = 6; // CBWCB length
+        c[15] = 0x12; // opcode
+        c
+    }
+
+    /// Splits `bytes` into `packet_size` OUT packets the device will read.
+    fn enqueue(shared: &Shared, bytes: &[u8], packet_size: u16) {
+        let mut out = shared.out.lock().unwrap();
+        for chunk in bytes.chunks(packet_size as usize) {
+            out.push_back(chunk.to_vec());
+        }
+    }
+
+    struct Csw {
+        status: u8,
+        residue: u32,
+    }
+
+    /// Drives a whole transaction and returns the CSW and the data bytes seen on the wire.
+    fn run(
+        packet_size: u16,
+        data_len: u32,
+        host: Host,
+        device: impl FnOnce(&mut MockBbb),
+    ) -> (Csw, Vec<u8>) {
+        let (shared, mut bbb) = new_bbb(packet_size);
+
+        enqueue(&shared, &cbw(data_len, host), packet_size);
+        if matches!(host, Host::ExpectsDataOut) {
+            enqueue(&shared, &vec![0xAA; data_len as usize], packet_size);
+        }
+
+        // Read the CBW (and, for Data-Out, all the OUT data) into the transport. A CBW
+        // spans several packets at small MTUs, so this may take multiple polls.
+        for _ in 0..64 {
+            let _ = bbb.poll();
+            let out_drained = !matches!(host, Host::ExpectsDataOut) || bbb.left_to_transfer == 0;
+            if bbb.get_command().is_some() && out_drained {
+                break;
+            }
+        }
+
+        device(&mut bbb);
+
+        for _ in 0..64 {
+            let _ = bbb.poll();
+            if matches!(bbb.state, State::CommandTransfer) {
+                break;
+            }
+        }
+
+        // The stream is data (if any) followed by the 13-byte CSW. Both fragment
+        // across packets at small MTUs, so reassemble and split off the trailing CSW.
+        let stream = std::mem::take(&mut *shared.input.lock().unwrap()).concat();
+        assert!(stream.len() >= CSW_LEN, "no CSW sent");
+        let (data, raw) = stream.split_at(stream.len() - CSW_LEN);
+        assert!(raw.starts_with(&CSW_SIGNATURE_LE));
+        (
+            Csw {
+                status: raw[12],
+                residue: u32::from_le_bytes(raw[8..12].try_into().unwrap()),
+            },
+            data.to_vec(),
+        )
+    }
+
+    fn is_invalid_state<T>(r: Result<T, TransportError<BulkOnlyError>>) -> bool {
+        matches!(r, Err(TransportError::Error(BulkOnlyError::InvalidState)))
     }
 }
 
