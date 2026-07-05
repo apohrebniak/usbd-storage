@@ -48,16 +48,35 @@ impl<'a, 'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>>
         self.class.transport.try_write_data_all(src)
     }
 
-    pub fn pass(self) {
-        self.class.transport.set_status(CommandStatus::Passed);
+    /// Mark command as successful (0x00)
+    ///
+    /// # Arguments
+    /// * num_bytes_processed - the actual number of bytes the device has actually processed.
+    ///   The `dCBWDataTransferLength - num_bytes_processed` is what is going to be sent
+    ///   in the CSW
+    pub fn pass(self, num_bytes_processed: u32) {
+        self.class
+            .transport
+            .set_status(CommandStatus::Passed, num_bytes_processed);
     }
 
-    pub fn fail(self) {
-        self.class.transport.set_status(CommandStatus::Failed);
+    /// Mark command as failed (0x01)
+    ///
+    /// # Arguments
+    /// * num_bytes_processed - the actual number of bytes the device has actually processed.
+    ///   The `dCBWDataTransferLength - num_bytes_processed` is what is going to be sent
+    ///   in the CSW
+    pub fn fail(self, num_bytes_processed: u32) {
+        self.class
+            .transport
+            .set_status(CommandStatus::Failed, num_bytes_processed);
     }
 
+    /// Mark command as phase-failed (0x02)
     pub fn fail_phase(self) {
-        self.class.transport.set_status(CommandStatus::PhaseError);
+        self.class
+            .transport
+            .set_status(CommandStatus::PhaseError, 0);
     }
 }
 
@@ -84,15 +103,34 @@ impl<'a, 'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>>
         self.class.transport.try_write_data_all(src)
     }
 
-    pub fn pass(self) {
-        self.class.transport.set_status(CommandStatus::Passed);
+    /// Mark command as successful (0x00)
+    ///
+    /// # Arguments
+    /// * num_bytes_processed - the actual number of bytes the device has actually processed.
+    ///   The `dCBWDataTransferLength - num_bytes_processed` is what is going to be sent
+    ///   in the CSW
+    pub fn pass(self, num_bytes_processed: u32) {
+        self.class
+            .transport
+            .set_status(CommandStatus::Passed, num_bytes_processed);
     }
 
-    pub fn fail(self) {
-        self.class.transport.set_status(CommandStatus::Failed);
+    /// Mark command as failed (0x01)
+    ///
+    /// # Arguments
+    /// * num_bytes_processed - the actual number of bytes the device has actually processed.
+    ///   The `dCBWDataTransferLength - num_bytes_processed` is what is going to be sent
+    ///   in the CSW
+    pub fn fail(self, num_bytes_processed: u32) {
+        self.class
+            .transport
+            .set_status(CommandStatus::Failed, num_bytes_processed);
     }
 
+    /// Mark command as phase-failed (0x02)
     pub fn fail_phase(self) {
-        self.class.transport.set_status(CommandStatus::PhaseError);
+        self.class
+            .transport
+            .set_status(CommandStatus::PhaseError, 0);
     }
 }

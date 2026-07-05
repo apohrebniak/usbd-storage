@@ -148,12 +148,12 @@ fn main() -> ! {
             })
         }
 
-        let _ = scsi.poll(|command| {
+        if let Err(err) = scsi.poll_command(|command| {
             led.set_low().unwrap();
-            if let Err(err) = process_command(command) {
-                defmt::error!("{}", err);
-            }
-        });
+            process_command(command)
+        }) {
+            defmt::warn!("{}", err);
+        }
     }
 }
 
@@ -164,10 +164,10 @@ fn process_command(
 
     match command.kind {
         ScsiCommand::TestUnitReady => {
-            command.pass();
+            command.pass(0);
         }
         ScsiCommand::Inquiry { .. } => {
-            command.try_write_data_all(&[
+            let data = [
                 0x00, // periph qualifier, periph device type
                 0x80, // Removable
                 0x04, // SPC-2 compliance
@@ -180,13 +180,14 @@ fn process_command(
                 b'R', b'P', b'2', b'0', b'4', b'0', b' ', b'U', b'S', b'B', b' ', b'F', b'l', b'a',
                 b's', b'h', // 16-byte product identification
                 b'1', b'.', b'2', b'3', // 4-byte product revision
-            ])?;
-            command.pass();
+            ];
+            command.try_write_data_all(&data)?;
+            command.pass(data.len() as u32);
         }
         ScsiCommand::RequestSense { .. } => critical_section::with(|cs| {
             let mut state = STATE.borrow_ref_mut(cs);
 
-            command.try_write_data_all(&[
+            let data = [
                 0x70,                         // RESPONSE CODE. Set to 70h for information on current errors
                 0x00,                         // obsolete
                 state.sense_key.unwrap_or(0), // Bits 3..0: SENSE KEY. Contains information describing the error.
@@ -205,9 +206,10 @@ fn process_command(
                 0x00,
                 0x00,
                 0x00,
-            ])?;
+            ];
+            command.try_write_data_all(&data)?;
             state.reset();
-            command.pass();
+            command.pass(data.len() as u32);
             Ok(())
         })?,
         ScsiCommand::ReadCapacity10 => {
@@ -215,14 +217,14 @@ fn process_command(
             let _ = &mut data[0..4].copy_from_slice(&u32::to_be_bytes(BLOCKS - 1));
             let _ = &mut data[4..8].copy_from_slice(&u32::to_be_bytes(BLOCK_SIZE));
             command.try_write_data_all(&data)?;
-            command.pass();
+            command.pass(data.len() as u32);
         }
         ScsiCommand::ReadCapacity16 { .. } => {
             let mut data = [0u8; 16];
             let _ = &mut data[0..8].copy_from_slice(&u32::to_be_bytes(BLOCKS - 1));
             let _ = &mut data[8..12].copy_from_slice(&u32::to_be_bytes(BLOCK_SIZE));
             command.try_write_data_all(&data)?;
-            command.pass();
+            command.pass(data.len() as u32);
         }
         ScsiCommand::ReadFormatCapacities { .. } => {
             let mut data = [0u8; 12];
@@ -237,7 +239,7 @@ fn process_command(
             data[11] = block_length_be[3];
 
             command.try_write_data_all(&data)?;
-            command.pass();
+            command.pass(data.len() as u32);
         }
         ScsiCommand::Read { lba, len } => critical_section::with(|cs| {
             let len = len as u32;
@@ -255,7 +257,7 @@ fn process_command(
                 let count = command.write_data(&FILESYSTEM[start..end])?;
                 state.storage_offset += count;
             } else {
-                command.pass();
+                command.pass(state.storage_offset as u32);
                 state.storage_offset = 0;
             }
 
@@ -293,28 +295,30 @@ fn process_command(
                 }
 
                 if state.storage_offset == (len * BLOCK_SIZE) as usize {
-                    command.pass();
+                    command.pass(state.storage_offset as u32);
                     state.storage_offset = 0;
                 }
             } else {
-                command.pass();
+                command.pass(state.storage_offset as u32);
                 state.storage_offset = 0;
             }
 
             Ok(())
         })?,
         ScsiCommand::ModeSense6 { .. } => {
-            command.try_write_data_all(&[
+            let data = [
                 0x03, // number of bytes that follow
                 0x00, // the media type is SBC
                 0x00, // not write-protected, no cache-control bytes support
                 0x00, // no mode-parameter block descriptors
-            ])?;
-            command.pass();
+            ];
+            command.try_write_data_all(&data)?;
+            command.pass(data.len() as u32);
         }
         ScsiCommand::ModeSense10 { .. } => {
-            command.try_write_data_all(&[0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])?;
-            command.pass();
+            let data = [0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+            command.try_write_data_all(&data)?;
+            command.pass(data.len() as u32);
         }
         ref unknown_scsi_kind => {
             defmt::error!("Unknown SCSI command: {}", unknown_scsi_kind);
@@ -324,7 +328,7 @@ fn process_command(
                 state.sense_key_code.replace(0x20); // Invalid command operation ASC
                 state.sense_qualifier.replace(0x00); // Invalid command operation ASCQ
 
-                command.fail();
+                command.fail(0);
 
                 Ok(())
             })?

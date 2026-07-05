@@ -14,14 +14,19 @@ pub const TRANSPORT_VENDOR_SPECIFIC: u8 = 0xFF;
 
 /// USB Mass Storage transport.
 ///
-/// An implementation of this trait can be used as underlying transport for subclasses
-/// defined in [subclass] module .
+/// An implementation of this trait can be used as an underlying transport for subclasses
+/// defined in the [subclass] module.
 ///
 /// [subclass]: crate::subclass
 pub trait Transport {
     /// Interface protocol code
     const PROTO: u8;
+
     type Bus: UsbBus;
+    #[cfg(not(feature = "defmt"))]
+    type Error: Debug;
+    #[cfg(feature = "defmt")]
+    type Error: Debug + defmt::Format;
 
     /// Registers all required USB **endpoints** using a provided `writer`.
     fn get_endpoint_descriptors(&self, writer: &mut DescriptorWriter) -> Result<(), UsbError>;
@@ -29,8 +34,13 @@ pub trait Transport {
     /// Called after a USB reset after the bus reset sequence is complete.
     fn reset(&mut self);
 
-    /// Called when a control request is received with direction DeviceToHost.
     fn control_in(&mut self, xfer: ControlIn<Self::Bus>);
+
+    /// Drives the IO.
+    ///
+    /// Must be called as often as possible. Usually, from the
+    /// wrapping [usb_device::class::UsbClass::poll]
+    fn poll(&mut self) -> Result<(), TransportError<Self::Error>>;
 }
 
 /// Generic error type that could be used by [Transport] impls.

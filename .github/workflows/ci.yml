@@ -28,17 +28,20 @@ jobs:
         run: |
           rustup update stable
           rustup default stable
-          cargo install --locked --version 1.11.0 cargo-all-features
+          cargo install --locked --version 1.12.0 cargo-all-features
 
       - name: cargo-fmt
         run: cargo fmt --check --verbose
+
       - name: cargo-clippy
         run:  cargo clippy -p usbd-storage --target ${{matrix.target}} --all-features --verbose
 
       - name: cargo-test
-        run: cargo test -p usbd-storage --test '**' --all-features
+        run: cargo test -p usbd-storage --all-features
+
       - name: cargo-build
         run: cargo build -p usbd-storage --target ${{matrix.target}} --verbose
+
       - name: cargo-build-all-features
         run: cargo all-features build -p usbd-storage --target ${{matrix.target}} --verbose
 

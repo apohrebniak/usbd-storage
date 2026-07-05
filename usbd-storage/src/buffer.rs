@@ -20,7 +20,7 @@ impl<T: BorrowMut<[u8]>> Buffer<T> {
         self.wpos - self.rpos
     }
 
-    pub fn available_write(&self) -> usize {
+    fn available_write(&self) -> usize {
         self.inner.borrow().len() - self.wpos
     }
 
@@ -69,6 +69,17 @@ impl<T: BorrowMut<[u8]>> Buffer<T> {
             debug_assert!(self.rpos <= self.wpos);
             advance_by
         })
+    }
+
+    pub fn fill_up_to(&mut self, value: u8, up_to: usize) {
+        if self.available_write() < up_to {
+            self.shift();
+        }
+        let count = min(self.available_write(), up_to);
+        let inner = self.inner.borrow_mut();
+        inner[self.wpos..(self.wpos + count)].fill(value);
+        self.wpos += count;
+        debug_assert!(self.wpos <= inner.len());
     }
 
     pub fn clean(&mut self) {
@@ -161,6 +172,50 @@ mod tests {
 
         // write full again
         assert_eq!(10, buf.write(&DATA[..10]));
+        assert_eq!(10, buf.available_read());
+        assert_eq!(0, buf.available_write());
+    }
+
+    #[test]
+    fn fill_up_to_when_space_available() {
+        let mut buf = Buffer::new([0u8; 10]);
+
+        buf.fill_up_to(0xFF, 7);
+
+        assert_eq!(0, buf.rpos);
+        assert_eq!(7, buf.wpos);
+
+        assert_eq!(
+            Ok::<usize, ()>(7),
+            buf.read(|buf| {
+                assert_eq!(7, buf.len());
+                assert!(buf.iter().all(|b| *b == 0xFF));
+                Ok(7)
+            })
+        );
+    }
+
+    #[test]
+    fn fill_up_to_shift() {
+        let mut buf = Buffer::new([0u8; 10]);
+        // write
+        assert_eq!(8, buf.write(&DATA[..8]));
+        assert_eq!(8, buf.available_read());
+        assert_eq!(2, buf.available_write());
+
+        // read some data
+        assert_eq!(
+            Ok::<usize, ()>(7),
+            buf.read(|buf| {
+                assert_eq!(8, buf.len());
+                Ok(7)
+            })
+        );
+        assert_eq!(1, buf.available_read());
+        assert_eq!(2, buf.available_write());
+
+        // write again
+        buf.fill_up_to(0xFF, 10);
         assert_eq!(10, buf.available_read());
         assert_eq!(0, buf.available_write());
     }
