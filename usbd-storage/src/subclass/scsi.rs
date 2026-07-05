@@ -1,16 +1,16 @@
 //! USB SCSI
 
 use crate::CLASS_MASS_STORAGE;
+use crate::fmt::{debug, trace};
 use crate::transport::Transport;
+use crate::transport::TransportError;
 use core::fmt::Debug;
 use num_enum::TryFromPrimitive;
 use usb_device::bus::InterfaceNumber;
 use usb_device::bus::UsbBus;
 use usb_device::class::{ControlIn, UsbClass};
 use usb_device::descriptor::DescriptorWriter;
-use crate::transport::TransportError;
-use crate::fmt::{debug, trace};
-    
+
 #[cfg(feature = "bbb")]
 use {
     crate::subclass::Command,
@@ -244,12 +244,14 @@ impl<'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>> Scsi<BulkOnly<'alloc, B
     /// Poll current SCSI command
     ///
     /// # Arguments
-    /// * `callback` - closure, in which the SCSI command is processed. If there 
+    /// * `callback` - closure, in which the SCSI command is processed. If there
     /// is no current command available or it doesn't require any input, this
     /// callback is *not* called.
     pub fn poll_command<F>(&mut self, mut callback: F) -> Result<(), TransportError<BulkOnlyError>>
     where
-        F: FnMut(Command<ScsiCommand, Scsi<BulkOnly<'alloc, Bus, Buf>>>) -> Result<(), TransportError<BulkOnlyError>>,
+        F: FnMut(
+            Command<ScsiCommand, Scsi<BulkOnly<'alloc, Bus, Buf>>>,
+        ) -> Result<(), TransportError<BulkOnlyError>>,
     {
         trace!("usb: scsi: poll_command");
 
@@ -402,4 +404,3 @@ mod tests {
         ));
     }
 }
-

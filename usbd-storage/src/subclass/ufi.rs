@@ -1,13 +1,13 @@
 //! USB Floppy Interface
 
 use crate::CLASS_MASS_STORAGE;
+use crate::fmt::{debug, trace};
 use crate::transport::Transport;
+use crate::transport::TransportError;
 use usb_device::bus::InterfaceNumber;
 use usb_device::bus::UsbBus;
 use usb_device::class::{ControlIn, UsbClass};
 use usb_device::descriptor::DescriptorWriter;
-use crate::transport::TransportError;
-use crate::fmt::{debug, trace};
 
 #[cfg(feature = "bbb")]
 use {
@@ -237,16 +237,17 @@ impl<'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>> Ufi<BulkOnly<'alloc, Bu
         })
     }
 
-
     /// Poll current UFI command
     ///
     /// # Arguments
-    /// * `callback` - closure, in which the UFI command is processed. If there 
+    /// * `callback` - closure, in which the UFI command is processed. If there
     /// is no current command available or it doesn't require any input, this
     /// callback is *not* called.
     pub fn poll_command<F>(&mut self, mut callback: F) -> Result<(), TransportError<BulkOnlyError>>
     where
-        F: FnMut(Command<UfiCommand, Ufi<BulkOnly<'alloc, Bus, Buf>>>) -> Result<(), TransportError<BulkOnlyError>>,
+        F: FnMut(
+            Command<UfiCommand, Ufi<BulkOnly<'alloc, Bus, Buf>>>,
+        ) -> Result<(), TransportError<BulkOnlyError>>,
     {
         trace!("usb: ufi: poll_command");
 
@@ -310,4 +311,3 @@ where
         }
     }
 }
-

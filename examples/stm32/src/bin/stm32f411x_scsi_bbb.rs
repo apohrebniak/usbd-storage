@@ -311,4 +311,3 @@ fn process_command(
 
     Ok(())
 }
-

@@ -65,4 +65,3 @@ pub enum CommandStatus {
     Failed = 0x01,
     PhaseError = 0x02,
 }
-
