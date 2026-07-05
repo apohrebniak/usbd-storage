@@ -1,9 +1,8 @@
 //! USB SCSI
 
 use crate::CLASS_MASS_STORAGE;
-use crate::fmt::{debug, trace};
+use crate::fmt::trace;
 use crate::transport::Transport;
-use crate::transport::TransportError;
 use core::fmt::Debug;
 use num_enum::TryFromPrimitive;
 use usb_device::bus::InterfaceNumber;
@@ -13,7 +12,9 @@ use usb_device::descriptor::DescriptorWriter;
 
 #[cfg(feature = "bbb")]
 use {
+    crate::fmt::debug,
     crate::subclass::Command,
+    crate::transport::TransportError,
     crate::transport::bbb::{BulkOnly, BulkOnlyError},
     core::borrow::BorrowMut,
     usb_device::bus::UsbBusAllocator,
