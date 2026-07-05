@@ -39,7 +39,7 @@ pub trait Transport {
     /// Drives the IO.
     ///
     /// Must be called as often as possible. Usually, from the
-    /// wrapping [usb_device::class:UsbClass::poll]
+    /// wrapping [usb_device::class::UsbClass::poll]
     fn poll(&mut self) -> Result<(), TransportError<Self::Error>>;
 }
 
