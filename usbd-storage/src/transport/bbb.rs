@@ -86,6 +86,11 @@ enum DataDirection {
     NotExpected,
 }
 
+struct StatusAndResidue {
+    status: CommandStatus,
+    data_residue: u32,
+}
+
 type BulkOnlyTransportResult<T> = Result<T, TransportError<BulkOnlyError>>;
 
 /// Bulk Only Transport
@@ -103,11 +108,9 @@ pub struct BulkOnly<'alloc, Bus: UsbBus, Buf: BorrowMut<[u8]>> {
     buf: Buffer<Buf>,
     state: State,
     cbw: CommandBlockWrapper,
-    cs: Option<CommandStatus>,
+    cs: Option<StatusAndResidue>,
     max_lun: u8,
-    /// A number of "fill" bytes sent during the data transfer.
-    /// Used together with `data_residue`
-    filled_bytes: u32,
+    left_to_transfer: u32,
 }
 
 impl<'alloc, Bus, Buf> BulkOnly<'alloc, Bus, Buf>
@@ -157,7 +160,7 @@ where
             cbw: Default::default(),
             cs: Default::default(),
             max_lun,
-            filled_bytes: 0,
+            left_to_transfer: 0,
         })
     }
 
@@ -170,12 +173,16 @@ where
     /// # Panics
     /// Panics if called during any by Data Transfer state. Usually, this means an error in
     /// subclass implementation.
-    pub fn set_status(&mut self, status: CommandStatus) {
+    pub fn set_status(&mut self, status: CommandStatus, data_processed: u32) {
         assert_matches!(
             self.state,
             State::DataTransferToHost | State::DataTransferFromHost | State::DataTransferNoData | State::DataTransferToHostStatusAwait);
-        trace!("usb: bbb: Set status: {}", status);
-        self.cs = Some(status);
+        let data_residue = self.cbw.data_transfer_len.saturating_sub(data_processed);
+        trace!("usb: bbb: Set status: {} residue: {}", status, data_residue);
+        self.cs = Some(StatusAndResidue {
+            status,
+            data_residue,
+        });
     }
 
     /// Returns a Command Block if present
@@ -233,7 +240,7 @@ where
 
         Ok(self
             .buf
-            .write(&src[..min(src.len(), self.data_residue() as usize)]))
+            .write(&src[..min(src.len(), self.left_to_transfer as usize)]))
     }
 
     /// Tries to write all data from `src` into the IO buffer returning the number of bytes actually written
@@ -268,7 +275,7 @@ where
 
     fn enter_state_command_transfer(&mut self) {
         self.cs = None;
-        self.filled_bytes = 0;
+        self.left_to_transfer = 0;
         self.in_ep.unstall();
         self.out_ep.unstall();
 
@@ -381,7 +388,7 @@ where
         assert_matches!(self.state, State::DataTransferToHost);
 
         // data is all sent. wait for the status
-        if self.data_residue() == 0 {
+        if self.left_to_transfer == 0 {
             self.enter_state_data_transfer_to_host_status_await();
             return self.handle_data_transfer_to_host_status_await();
         }
@@ -393,13 +400,13 @@ where
         }
 
         // allow a short packet if needed
-        let bytes_sent = if self.data_residue() < self.packet_size() as u32 {
+        let bytes_sent = if self.left_to_transfer < self.packet_size() as u32 {
             self.write_packet()?
         } else {
             self.try_write_full_packet()?
         };
 
-        self.decrease_data_residue_by(bytes_sent as u32);
+        self.mark_as_transfered(bytes_sent as u32);
 
         Ok(())
     }
@@ -435,8 +442,7 @@ where
     fn handle_data_transfer_to_host_ending(&mut self) -> BulkOnlyTransportResult<()> {
         assert_matches!(self.state, State::DataTransferToHostEnding);
 
-        let left_to_send = self.data_residue().saturating_sub(self.filled_bytes) as usize;
-        let has_to_send = min(left_to_send, self.packet_size());
+        let has_to_send = min(self.left_to_transfer as usize, self.packet_size());
 
         // data has been completely sent off. send status now
         if has_to_send == 0 {
@@ -449,16 +455,14 @@ where
         if available >= has_to_send {
             // enough data to send a full packet
             let bytes_written = self.write_packet()?;
-            self.decrease_data_residue_by(bytes_written as u32);
+            self.mark_as_transfered(bytes_written as u32);
         } else {
             // fill up to has_to_send
             let to_fill = has_to_send.saturating_sub(available);
             self.buf.fill_up_to(FILL_BYTE, to_fill);
 
-            self.write_packet()?;
-            self.decrease_data_residue_by(available as u32); // actual data
-
-            self.filled_bytes += to_fill as u32;
+            let bytes_written = self.write_packet()?;
+            self.mark_as_transfered(bytes_written as u32);
         }
 
         Ok(())
@@ -469,7 +473,7 @@ where
         assert_matches!(self.state, State::DataTransferFromHost);
 
         // data is all read. wait for the status
-        if self.data_residue() == 0 {
+        if self.left_to_transfer == 0 {
             self.enter_state_data_transfer_to_host_status_await();
             return self.handle_data_transfer_to_host_status_await();
         }
@@ -481,7 +485,7 @@ where
         }
 
         let bytes_read = self.read_packet()?;
-        self.decrease_data_residue_by(bytes_read as u32);
+        self.mark_as_transfered(bytes_read as u32);
 
         Ok(())
     }
@@ -490,11 +494,11 @@ where
         assert_matches!(self.state, State::DataTransferFromHostEnding);
 
         // keep reading up to the data_residue
-        if self.data_residue() > self.filled_bytes {
+        if self.left_to_transfer > 0 {
             self.buf.clean(); // no one is going to read this data anyway
 
             let bytes_read = self.read_packet()?;
-            self.filled_bytes = self.filled_bytes.saturating_sub(bytes_read as u32);
+            self.mark_as_transfered(bytes_read as u32);
         } else {
             // all data has been read
             self.enter_state_status_transfer();
@@ -505,12 +509,12 @@ where
     }
 
     fn build_csw(&mut self) -> Option<[u8; CSW_LEN]> {
-        self.cs.map(|status| {
+        self.cs.as_ref().map(|status| {
             let mut csw = [0u8; CSW_LEN];
             csw[..4].copy_from_slice(CSW_SIGNATURE_LE.as_slice());
             csw[4..8].copy_from_slice(self.cbw.tag.to_le_bytes().as_slice());
-            csw[8..12].copy_from_slice(self.cbw.data_residue.to_le_bytes().as_slice());
-            csw[12..].copy_from_slice(&[status as u8]);
+            csw[8..12].copy_from_slice(status.data_residue.to_le_bytes().as_slice());
+            csw[12..].copy_from_slice(&[status.status as u8]);
             csw
         })
     }
@@ -537,10 +541,11 @@ where
         CommandBlockWrapper::from_le_bytes(&raw_cbw[4..]) // parse CBW (skipping signature)
     }
 
-    fn start_data_transfer(&mut self, mut cbw: CommandBlockWrapper) -> BulkOnlyTransportResult<()> {
+    fn start_data_transfer(&mut self, cbw: CommandBlockWrapper) -> BulkOnlyTransportResult<()> {
         assert_matches!(self.state, State::CommandTransfer);
 
         self.cbw = cbw;
+        self.left_to_transfer = cbw.data_transfer_len;
 
         match cbw.direction {
             DataDirection::Out => {
@@ -564,13 +569,8 @@ where
     }
 
     #[inline]
-    fn data_residue(&self) -> u32 {
-        self.cbw.data_residue
-    }
-
-    #[inline]
-    fn decrease_data_residue_by(&mut self, by: u32) {
-        self.cbw.data_residue = self.cbw.data_residue.saturating_sub(by);
+    fn mark_as_transfered(&mut self, by: u32) {
+        self.left_to_transfer = self.left_to_transfer.saturating_sub(by);
     }
 
     // Tries to read a single packet from OUT EP
@@ -713,8 +713,7 @@ where
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct CommandBlockWrapper {
     tag: u32,
-    // data_transfer_len
-    data_residue: u32,
+    data_transfer_len: u32,
     direction: DataDirection,
     lun: u8,
     block_len: usize,
@@ -751,7 +750,7 @@ impl CommandBlockWrapper {
 
         Ok(CommandBlockWrapper {
             tag,
-            data_residue: data_transfer_len,
+            data_transfer_len,
             direction,
             lun: value[9] & 0b00001111,
             block_len: block_len as usize,

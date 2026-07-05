@@ -48,16 +48,16 @@ impl<'a, 'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>>
         self.class.transport.try_write_data_all(src)
     }
 
-    pub fn pass(self) {
-        self.class.transport.set_status(CommandStatus::Passed);
+    pub fn pass(self, num_bytes_processed: u32) {
+        self.class.transport.set_status(CommandStatus::Passed, num_bytes_processed);
     }
 
-    pub fn fail(self) {
-        self.class.transport.set_status(CommandStatus::Failed);
+    pub fn fail(self, num_bytes_processed: u32) {
+        self.class.transport.set_status(CommandStatus::Failed, num_bytes_processed);
     }
 
     pub fn fail_phase(self) {
-        self.class.transport.set_status(CommandStatus::PhaseError);
+        self.class.transport.set_status(CommandStatus::PhaseError, 0);
     }
 }
 
@@ -84,15 +84,15 @@ impl<'a, 'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>>
         self.class.transport.try_write_data_all(src)
     }
 
-    pub fn pass(self) {
-        self.class.transport.set_status(CommandStatus::Passed);
+    pub fn pass(self, num_bytes_processed: u32) {
+        self.class.transport.set_status(CommandStatus::Passed, num_bytes_processed);
     }
 
-    pub fn fail(self) {
-        self.class.transport.set_status(CommandStatus::Failed);
+    pub fn fail(self, num_bytes_processed: u32) {
+        self.class.transport.set_status(CommandStatus::Failed, num_bytes_processed);
     }
 
     pub fn fail_phase(self) {
-        self.class.transport.set_status(CommandStatus::PhaseError);
+        self.class.transport.set_status(CommandStatus::PhaseError, 0);
     }
 }
