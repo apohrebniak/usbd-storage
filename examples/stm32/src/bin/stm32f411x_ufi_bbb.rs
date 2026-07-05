@@ -135,7 +135,7 @@ fn main() -> ! {
             led.set_low();
             process_command(command)
         }) {
-            defmt::error!("{}", err);
+            defmt::warn!("{}", err);
         }
     }
 }
@@ -148,26 +148,28 @@ fn process_command(
 
     match command.kind {
         UfiCommand::Inquiry { .. } => {
-            command.try_write_data_all(&[
+            let data = [
                 0x00, 0b10000000, 0, 0x01, 0x1F, 0, 0, 0, b'F', b'o', b'o', b' ', b'B', b'a', b'r',
                 b'0', b'F', b'o', b'o', b' ', b'B', b'a', b'r', b'0', b'F', b'o', b'o', b' ', b'B',
                 b'a', b'r', b'0', b'1', b'.', b'2', b'3',
-            ])?;
-            command.pass();
+            ];
+            command.try_write_data_all(&data)?;
+            command.pass(data.len() as u32);
         }
         UfiCommand::StartStop { .. }
         | UfiCommand::TestUnitReady
         | UfiCommand::PreventAllowMediumRemoval { .. } => {
-            command.pass();
+            command.pass(0);
         }
         UfiCommand::ReadCapacity => {
-            command.try_write_data_all(&[0x00, 0x00, 0x0b, 0x3f, 0x00, 0x00, 0x02, 0x00])?;
-            command.pass();
+            let data = [0x00, 0x00, 0x0b, 0x3f, 0x00, 0x00, 0x02, 0x00];
+            command.try_write_data_all(&data)?;
+            command.pass(data.len() as u32);
         }
         UfiCommand::RequestSense { .. } => critical_section::with(|cs| {
             let mut state = STATE.borrow_ref_mut(cs);
 
-            command.try_write_data_all(&[
+            let data = [
                 0x70, // error code
                 0x00,
                 state.sense_key.unwrap_or(0),
@@ -186,23 +188,25 @@ fn process_command(
                 0x00,
                 0x00,
                 0x00,
-            ])?;
+            ];
+            command.try_write_data_all(&data)?;
 
             state.reset();
-            command.pass();
+            command.pass(data.len() as u32);
             Ok(())
         })?,
         UfiCommand::ModeSense { .. } => {
             /* Read Only */
-            command.try_write_data_all(&[0x00, 0x46, 0x02, 0x80, 0x00, 0x00, 0x00, 0x00])?;
+            let data = [0x00, 0x46, 0x02, 0x80, 0x00, 0x00, 0x00, 0x00];
+            command.try_write_data_all(&data)?;
 
             /* Read Write */
             // command.try_write_data_all(&[0x00, 0x46, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00])?;
 
-            command.pass();
+            command.pass(data.len() as u32);
         }
         UfiCommand::Write { .. } => {
-            command.pass();
+            command.pass(0);
         }
         UfiCommand::Read { lba, len } => critical_section::with(|cs| {
             let mut state = STATE.borrow_ref_mut(cs);
@@ -227,7 +231,7 @@ fn process_command(
                     }
                 }
             } else {
-                command.pass();
+                command.pass(state.storage_offset as u32);
                 state.storage_offset = 0;
             }
 
@@ -243,7 +247,7 @@ fn process_command(
                 state.sense_qualifier.replace(0x00); // Invalid command operation
             });
 
-            command.fail();
+            command.fail(0);
         }
     }
 
