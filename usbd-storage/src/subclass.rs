@@ -52,8 +52,8 @@ impl<'a, 'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>>
     ///
     /// # Arguments
     /// * num_bytes_processed - the actual amount of bytes the device has actually processed.
-    /// The `dCBWDataTransferLength - num_bytes_processed` is what going to be sent
-    /// in the CSW
+    ///   The `dCBWDataTransferLength - num_bytes_processed` is what going to be sent
+    ///   in the CSW
     pub fn pass(self, num_bytes_processed: u32) {
         self.class
             .transport
@@ -64,8 +64,8 @@ impl<'a, 'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>>
     ///
     /// # Arguments
     /// * num_bytes_processed - the actual amount of bytes the device has actually processed.
-    /// The `dCBWDataTransferLength - num_bytes_processed` is what going to be sent
-    /// in the CSW
+    ///   The `dCBWDataTransferLength - num_bytes_processed` is what going to be sent
+    ///   in the CSW
     pub fn fail(self, num_bytes_processed: u32) {
         self.class
             .transport
@@ -107,8 +107,8 @@ impl<'a, 'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>>
     ///
     /// # Arguments
     /// * num_bytes_processed - the actual amount of bytes the device has actually processed.
-    /// The `dCBWDataTransferLength - num_bytes_processed` is what going to be sent
-    /// in the CSW
+    ///   The `dCBWDataTransferLength - num_bytes_processed` is what going to be sent
+    ///   in the CSW
     pub fn pass(self, num_bytes_processed: u32) {
         self.class
             .transport
@@ -119,8 +119,8 @@ impl<'a, 'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>>
     ///
     /// # Arguments
     /// * num_bytes_processed - the actual amount of bytes the device has actually processed.
-    /// The `dCBWDataTransferLength - num_bytes_processed` is what going to be sent
-    /// in the CSW
+    ///   The `dCBWDataTransferLength - num_bytes_processed` is what going to be sent
+    ///   in the CSW
     pub fn fail(self, num_bytes_processed: u32) {
         self.class
             .transport

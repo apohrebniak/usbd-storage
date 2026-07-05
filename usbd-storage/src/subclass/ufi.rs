@@ -241,8 +241,8 @@ impl<'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>> Ufi<BulkOnly<'alloc, Bu
     ///
     /// # Arguments
     /// * `callback` - closure, in which the UFI command is processed. If there
-    /// is no current command available or it doesn't require any input, this
-    /// callback is *not* called.
+    ///   is no current command available or it doesn't require any input, this
+    ///   callback is *not* called.
     pub fn poll_command<F>(&mut self, mut callback: F) -> Result<(), TransportError<BulkOnlyError>>
     where
         F: FnMut(
