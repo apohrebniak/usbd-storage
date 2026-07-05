@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- BBB: Send/receive all dCBWDataTransferLength data instead of STALLing endpoints (https://github.com/apohrebniak/usbd-storage/pull/26)
+
 ### Fixed
 
 - Bounds-check the SCSI CDB parse against short command blocks (https://github.com/apohrebniak/usbd-storage/pull/24)
@@ -52,3 +56,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.2.0]: https://github.com/apohrebniak/usbd-storage/releases/tag/v0.2.0
 [0.1.1]: https://github.com/apohrebniak/usbd-storage/releases/tag/v0.1.1
 [0.1.0]: https://github.com/apohrebniak/usbd-storage/releases/tag/v0.1.0
+
