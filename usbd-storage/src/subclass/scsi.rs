@@ -224,7 +224,7 @@ impl<'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>> Scsi<BulkOnly<'alloc, B
     /// * [BufferTooSmall]
     ///
     /// # Panics
-    /// Panics if endpoint allocations fails.
+    /// Panics if endpoint allocation fails.
     ///
     /// [InvalidMaxLun]: crate::transport::bbb::BulkOnlyError::InvalidMaxLun
     /// [BufferTooSmall]: crate::transport::bbb::BulkOnlyError::BufferTooSmall

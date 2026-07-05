@@ -62,7 +62,7 @@ enum State {
     /// CBW is valid. No data transfer expected by the host
     DataTransferNoData,
     /// Device actively writes CSW.
-    /// Invariant: buffer contains CSW bytes letf to send
+    /// Invariant: buffer contains CSW bytes left to send
     StatusTransfer,
     /// Device actively sends data to host
     DataTransferToHost,
@@ -132,7 +132,7 @@ where
     /// * [BufferTooSmall]
     ///
     /// # Panics
-    /// Panics if endpoint allocations fails.
+    /// Panics if endpoint allocation fails.
     ///
     /// [InvalidMaxLun]: crate::transport::bbb::BulkOnlyError::InvalidMaxLun
     /// [BufferTooSmall]: crate::transport::bbb::BulkOnlyError::BufferTooSmall
@@ -171,7 +171,7 @@ where
     /// contents of the buffer before `CSW`.
     ///
     /// # Panics
-    /// Panics if called during any by Data Transfer state. Usually, this means an error in
+    /// Panics if called during any but a Data Transfer state. Usually, this means an error in
     /// subclass implementation.
     pub fn set_status(&mut self, status: CommandStatus, data_processed: u32) {
         assert_matches!(
@@ -409,7 +409,7 @@ where
             self.try_write_full_packet()?
         };
 
-        self.mark_as_transfered(bytes_sent as u32);
+        self.mark_as_transferred(bytes_sent as u32);
 
         Ok(())
     }
@@ -458,14 +458,14 @@ where
         if available >= has_to_send {
             // enough data to send a full packet
             let bytes_written = self.write_packet()?;
-            self.mark_as_transfered(bytes_written as u32);
+            self.mark_as_transferred(bytes_written as u32);
         } else {
             // fill up to has_to_send
             let to_fill = has_to_send.saturating_sub(available);
             self.buf.fill_up_to(FILL_BYTE, to_fill);
 
             let bytes_written = self.write_packet()?;
-            self.mark_as_transfered(bytes_written as u32);
+            self.mark_as_transferred(bytes_written as u32);
         }
 
         Ok(())
@@ -488,7 +488,7 @@ where
         }
 
         let bytes_read = self.read_packet()?;
-        self.mark_as_transfered(bytes_read as u32);
+        self.mark_as_transferred(bytes_read as u32);
 
         Ok(())
     }
@@ -501,7 +501,7 @@ where
             self.buf.clean(); // no one is going to read this data anyway
 
             let bytes_read = self.read_packet()?;
-            self.mark_as_transfered(bytes_read as u32);
+            self.mark_as_transferred(bytes_read as u32);
         } else {
             // all data has been read
             self.enter_state_status_transfer();
@@ -572,7 +572,7 @@ where
     }
 
     #[inline]
-    fn mark_as_transfered(&mut self, by: u32) {
+    fn mark_as_transferred(&mut self, by: u32) {
         self.left_to_transfer = self.left_to_transfer.saturating_sub(by);
     }
 

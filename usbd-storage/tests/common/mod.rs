@@ -17,7 +17,7 @@ pub enum Step<BUS, CMD, CLASS> {
     DevCmdHandle(fn(Command<CMD, CLASS>) -> ()),
 }
 
-// perhaps not the best way, but it's easier that battling against escaped borrows in closures
+// perhaps not the best way, but it's easier than battling against escaped borrows in closures
 #[macro_export]
 macro_rules! run_on_scsi_bbb_bus_timed {
     { $timeout:expr, $steps:expr } => {

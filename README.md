@@ -8,7 +8,7 @@ Implemented subclasses:
 * `SCSI device` - number of SCSI commands is not exhaustive. Open a PR, if you want to add one.
 * `USB Floppy Interface`
 
-It is possible to implement a vendor specific subclass.
+It is possible to implement a vendor-specific subclass.
 
 # Transports
 Currently, only `Bulk Only` transport is implemented. It is possible to implement a vendor-specific transport.

@@ -51,8 +51,8 @@ impl<'a, 'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>>
     /// Mark command as successful (0x00)
     ///
     /// # Arguments
-    /// * num_bytes_processed - the actual amount of bytes the device has actually processed.
-    ///   The `dCBWDataTransferLength - num_bytes_processed` is what going to be sent
+    /// * num_bytes_processed - the actual number of bytes the device has actually processed.
+    ///   The `dCBWDataTransferLength - num_bytes_processed` is what is going to be sent
     ///   in the CSW
     pub fn pass(self, num_bytes_processed: u32) {
         self.class
@@ -63,8 +63,8 @@ impl<'a, 'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>>
     /// Mark command as failed (0x01)
     ///
     /// # Arguments
-    /// * num_bytes_processed - the actual amount of bytes the device has actually processed.
-    ///   The `dCBWDataTransferLength - num_bytes_processed` is what going to be sent
+    /// * num_bytes_processed - the actual number of bytes the device has actually processed.
+    ///   The `dCBWDataTransferLength - num_bytes_processed` is what is going to be sent
     ///   in the CSW
     pub fn fail(self, num_bytes_processed: u32) {
         self.class
@@ -106,8 +106,8 @@ impl<'a, 'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>>
     /// Mark command as successful (0x00)
     ///
     /// # Arguments
-    /// * num_bytes_processed - the actual amount of bytes the device has actually processed.
-    ///   The `dCBWDataTransferLength - num_bytes_processed` is what going to be sent
+    /// * num_bytes_processed - the actual number of bytes the device has actually processed.
+    ///   The `dCBWDataTransferLength - num_bytes_processed` is what is going to be sent
     ///   in the CSW
     pub fn pass(self, num_bytes_processed: u32) {
         self.class
@@ -118,8 +118,8 @@ impl<'a, 'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>>
     /// Mark command as failed (0x01)
     ///
     /// # Arguments
-    /// * num_bytes_processed - the actual amount of bytes the device has actually processed.
-    ///   The `dCBWDataTransferLength - num_bytes_processed` is what going to be sent
+    /// * num_bytes_processed - the actual number of bytes the device has actually processed.
+    ///   The `dCBWDataTransferLength - num_bytes_processed` is what is going to be sent
     ///   in the CSW
     pub fn fail(self, num_bytes_processed: u32) {
         self.class

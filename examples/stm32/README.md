@@ -1,7 +1,7 @@
 # Firmware examples
 
 ---
-#### Currently, examples are tested under macOS and linux.
+#### Currently, examples are tested under macOS and Linux.
 
 | Name | Description                                                                                                             |
 | ---- |-------------------------------------------------------------------------------------------------------------------------|
