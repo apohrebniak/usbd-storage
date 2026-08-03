@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- BBB: don't hand a command block to the subclass after an invalid CBW (https://github.com/apohrebniak/usbd-storage/pull/28)
+- BBB: never put more than `dCBWDataTransferLength` bytes on the Bulk-In pipe (https://github.com/apohrebniak/usbd-storage/pull/28)
+
 ## [3.0.0] - 2026-07-05
 
 ### Changed
@@ -59,4 +64,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.2.0]: https://github.com/apohrebniak/usbd-storage/releases/tag/v0.2.0
 [0.1.1]: https://github.com/apohrebniak/usbd-storage/releases/tag/v0.1.1
 [0.1.0]: https://github.com/apohrebniak/usbd-storage/releases/tag/v0.1.0
-
