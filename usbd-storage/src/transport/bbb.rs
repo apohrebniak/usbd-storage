@@ -412,7 +412,7 @@ where
 
         // allow a short packet if needed
         let bytes_sent = if self.left_to_transfer < self.packet_size() as u32 {
-            self.write_packet()?
+            self.write_packet(self.left_to_transfer as usize)?
         } else {
             self.try_write_full_packet()?
         };
@@ -432,7 +432,7 @@ where
             return self.handle_read_cbw();
         }
 
-        self.write_packet()?;
+        self.write_packet(CSW_LEN)?;
 
         Ok(())
     }
@@ -461,20 +461,14 @@ where
             return self.handle_status_transfer();
         }
 
+        // fill up to has_to_send if the subclass left us short
         let available = self.buf.available_read();
-
-        if available >= has_to_send {
-            // enough data to send a full packet
-            let bytes_written = self.write_packet()?;
-            self.mark_as_transferred(bytes_written as u32);
-        } else {
-            // fill up to has_to_send
-            let to_fill = has_to_send.saturating_sub(available);
-            self.buf.fill_up_to(FILL_BYTE, to_fill);
-
-            let bytes_written = self.write_packet()?;
-            self.mark_as_transferred(bytes_written as u32);
+        if available < has_to_send {
+            self.buf.fill_up_to(FILL_BYTE, has_to_send - available);
         }
+
+        let bytes_written = self.write_packet(has_to_send)?;
+        self.mark_as_transferred(bytes_written as u32);
 
         Ok(())
     }
@@ -607,13 +601,21 @@ where
 
     /// Tries to write a single packet into IN EP returning the number of bytes actually written
     ///
-    /// Might write a short packet if not enough data was in the buffer
-    fn write_packet(&mut self) -> BulkOnlyTransportResult<usize> {
-        let packet_size = self.packet_size();
+    /// Might write a short packet if not enough data was in the buffer.
+    ///
+    /// `max` caps how many bytes may go on the wire, on top of the packet size and
+    /// whatever the buffer holds. During a Data-In transfer that cap is the number of
+    /// bytes the host still expects, so a subclass that staged more than
+    /// `dCBWDataTransferLength` cannot make the device overrun the host's buffer
+    /// (Spec. 6.7.2: the device may send data up to a total of
+    /// `dCBWDataTransferLength`). Bytes staged beyond the cap are dropped when the
+    /// Status Transfer state cleans the buffer.
+    fn write_packet(&mut self, max: usize) -> BulkOnlyTransportResult<usize> {
+        let limit = min(self.packet_size(), max);
 
         let bytes_written = self.buf.read(|buf| {
             if !buf.is_empty() {
-                match self.in_ep.write(&buf[..min(packet_size, buf.len())]) {
+                match self.in_ep.write(&buf[..min(limit, buf.len())]) {
                     Ok(bytes_written) => {
                         trace!("usb: bbb: Wrote bytes: {}", bytes_written);
                         Ok(bytes_written)
@@ -639,7 +641,7 @@ where
             return Err(TransportError::Error(BulkOnlyError::FullPacketExpected));
         }
 
-        self.write_packet()
+        self.write_packet(self.packet_size())
     }
 }
 
@@ -962,6 +964,55 @@ mod tests {
         bbb.buf.write([0xFFu8; BUF_SIZE].as_slice()); // fill the buffer
 
         assert_eq!(N, bbb.read_data([0u8; N].as_mut_slice()).unwrap());
+    }
+
+    #[test]
+    fn short_data_in_request_is_not_overrun_by_try_write_data_all() {
+        // try_write_data_all applies no dCBWDataTransferLength cap -- it is meant for
+        // canned, fixed-size responses, which is how the examples answer INQUIRY,
+        // MODE SENSE and friends. When the host asks for fewer bytes than the canned
+        // response holds (ordinary host probing), the transport must still put only
+        // dCBWDataTransferLength bytes on the wire. Spec. 6.7.2.
+        const D: u32 = 4; // host asks for 4 bytes
+
+        for ps in PACKET_SIZES {
+            let (csw, data) = run(ps, D, Host::ExpectsDataIn, |b| {
+                b.try_write_data_all(&[0xAA; 36]).unwrap(); // canned INQUIRY response
+                b.set_status(CommandStatus::Passed, 36);
+            });
+            assert_eq!(data.len(), D as usize, "ps={ps}");
+            assert_eq!(csw.status, 0, "ps={ps}");
+            assert_eq!(csw.residue, 0, "ps={ps}");
+        }
+    }
+
+    #[test]
+    fn overstaged_data_in_is_truncated_to_the_requested_length() {
+        // write_data caps each call against left_to_transfer -- the UNSENT budget --
+        // so a subclass writing in several rounds can stage more than
+        // dCBWDataTransferLength in total. The wire must still carry no more than
+        // the host asked for.
+        const PS: u16 = 64;
+        const D: u32 = 100;
+
+        let (shared, mut bbb) = new_bbb(PS);
+        enqueue(&shared, &cbw(D, Host::ExpectsDataIn), PS);
+        let _ = bbb.poll(); // read CBW, enter DataTransferToHost
+
+        assert_eq!(100, bbb.write_data(&[0xAA; 100]).unwrap());
+        let _ = bbb.poll(); // sends one full packet; left_to_transfer 100 -> 36
+        assert_eq!(36, bbb.write_data(&[0xBB; 100]).unwrap()); // total staged: 136
+
+        bbb.set_status(CommandStatus::Passed, D);
+        for _ in 0..64 {
+            let _ = bbb.poll();
+            if matches!(bbb.state, State::CommandTransfer) {
+                break;
+            }
+        }
+
+        let stream = std::mem::take(&mut *shared.input.lock().unwrap()).concat();
+        assert_eq!(stream.len() - CSW_LEN, D as usize);
     }
 
     #[test]
