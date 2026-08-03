@@ -786,7 +786,7 @@ mod tests {
     fn host_expects_no_data_device_sends_no_data() {
         // Case 1: Hn = Dn
         for ps in PACKET_SIZES {
-            let (csw, _) = run(ps, 0, Host::ExpectsNoData, |b| {
+            let (csw, _) = run(ps, 0, Host::NoData, |b| {
                 b.set_status(CommandStatus::Passed, 0)
             });
             assert_eq!(csw.status, 0, "ps={ps}");
@@ -798,7 +798,7 @@ mod tests {
     fn host_expects_no_data_device_wants_to_send() {
         // Case 2: Hn < Di -> Phase Error
         for ps in PACKET_SIZES {
-            let (csw, data) = run(ps, 0, Host::ExpectsNoData, |b| {
+            let (csw, data) = run(ps, 0, Host::NoData, |b| {
                 assert!(is_invalid_state(b.write_data(&[0xAA; 8])));
                 b.set_status(CommandStatus::PhaseError, 0);
             });
@@ -811,7 +811,7 @@ mod tests {
     fn host_expects_no_data_device_wants_to_receive() {
         // Case 3: Hn < Do -> Phase Error
         for ps in PACKET_SIZES {
-            let (csw, _) = run(ps, 0, Host::ExpectsNoData, |b| {
+            let (csw, _) = run(ps, 0, Host::NoData, |b| {
                 assert!(is_invalid_state(b.read_data(&mut [0u8; 8])));
                 b.set_status(CommandStatus::PhaseError, 0);
             });
@@ -825,7 +825,7 @@ mod tests {
     fn host_expects_data_in_device_sends_none() {
         // Case 4: Hi > Dn
         for ps in PACKET_SIZES {
-            let (csw, data) = run(ps, 32, Host::ExpectsDataIn, |b| {
+            let (csw, data) = run(ps, 32, Host::DataIn, |b| {
                 b.set_status(CommandStatus::Passed, 0)
             });
             assert_eq!(csw.status, 0, "ps={ps}");
@@ -838,7 +838,7 @@ mod tests {
     fn host_expects_more_data_in_than_device_sends() {
         // Case 5: Hi > Di
         for ps in PACKET_SIZES {
-            let (csw, data) = run(ps, 32, Host::ExpectsDataIn, |b| {
+            let (csw, data) = run(ps, 32, Host::DataIn, |b| {
                 let n = b.write_data(&[0xAA; 16]).unwrap();
                 b.set_status(CommandStatus::Passed, n as u32);
             });
@@ -852,7 +852,7 @@ mod tests {
     fn host_expects_exactly_what_device_sends() {
         // Case 6: Hi = Di
         for ps in PACKET_SIZES {
-            let (csw, data) = run(ps, 32, Host::ExpectsDataIn, |b| {
+            let (csw, data) = run(ps, 32, Host::DataIn, |b| {
                 let n = b.write_data(&[0xAA; 32]).unwrap();
                 b.set_status(CommandStatus::Passed, n as u32);
             });
@@ -866,7 +866,7 @@ mod tests {
     fn host_expects_less_data_in_than_device_sends() {
         // Case 7: Hi < Di -> Phase Error
         for ps in PACKET_SIZES {
-            let (csw, data) = run(ps, 16, Host::ExpectsDataIn, |b| {
+            let (csw, data) = run(ps, 16, Host::DataIn, |b| {
                 let n = b.write_data(&[0xAA; 32]).unwrap(); // capped to dCBWDataTransferLength
                 assert_eq!(n, 16); // device wanted to send more than the host allows
                 b.set_status(CommandStatus::PhaseError, 0);
@@ -880,7 +880,7 @@ mod tests {
     fn host_expects_data_in_device_wants_to_receive() {
         // Case 8: Hi <> Do -> Phase Error
         for ps in PACKET_SIZES {
-            let (csw, data) = run(ps, 32, Host::ExpectsDataIn, |b| {
+            let (csw, data) = run(ps, 32, Host::DataIn, |b| {
                 assert!(is_invalid_state(b.read_data(&mut [0u8; 32])));
                 b.set_status(CommandStatus::PhaseError, 0);
             });
@@ -895,7 +895,7 @@ mod tests {
     fn host_sends_data_device_receives_none() {
         // Case 9: Ho > Dn
         for ps in PACKET_SIZES {
-            let (csw, _) = run(ps, 32, Host::ExpectsDataOut, |b| {
+            let (csw, _) = run(ps, 32, Host::DataOut, |b| {
                 b.set_status(CommandStatus::Passed, 0)
             });
             assert_eq!(csw.status, 0, "ps={ps}");
@@ -907,7 +907,7 @@ mod tests {
     fn host_sends_data_device_wants_to_send() {
         // Case 10: Ho <> Di -> Phase Error
         for ps in PACKET_SIZES {
-            let (csw, _) = run(ps, 32, Host::ExpectsDataOut, |b| {
+            let (csw, _) = run(ps, 32, Host::DataOut, |b| {
                 assert!(is_invalid_state(b.write_data(&[0xAA; 8])));
                 b.set_status(CommandStatus::PhaseError, 0);
             });
@@ -919,7 +919,7 @@ mod tests {
     fn host_sends_more_data_out_than_device_receives() {
         // Case 11: Ho > Do
         for ps in PACKET_SIZES {
-            let (csw, _) = run(ps, 32, Host::ExpectsDataOut, |b| {
+            let (csw, _) = run(ps, 32, Host::DataOut, |b| {
                 let n = b.read_data(&mut [0u8; 16]).unwrap();
                 b.set_status(CommandStatus::Passed, n as u32);
             });
@@ -932,7 +932,7 @@ mod tests {
     fn host_sends_exactly_what_device_receives() {
         // Case 12: Ho = Do
         for ps in PACKET_SIZES {
-            let (csw, _) = run(ps, 32, Host::ExpectsDataOut, |b| {
+            let (csw, _) = run(ps, 32, Host::DataOut, |b| {
                 let n = b.read_data(&mut [0u8; 32]).unwrap();
                 b.set_status(CommandStatus::Passed, n as u32);
             });
@@ -945,7 +945,7 @@ mod tests {
     fn host_sends_less_data_out_than_device_receives() {
         // Case 13: Ho < Do -> Phase Error
         for ps in PACKET_SIZES {
-            let (csw, _) = run(ps, 16, Host::ExpectsDataOut, |b| {
+            let (csw, _) = run(ps, 16, Host::DataOut, |b| {
                 let n = b.read_data(&mut [0u8; 32]).unwrap(); // only what the host sent
                 assert_eq!(n, 16); // device wanted to receive more than the host sends
                 b.set_status(CommandStatus::PhaseError, 0);
@@ -976,7 +976,7 @@ mod tests {
         const D: u32 = 4; // host asks for 4 bytes
 
         for ps in PACKET_SIZES {
-            let (csw, data) = run(ps, D, Host::ExpectsDataIn, |b| {
+            let (csw, data) = run(ps, D, Host::DataIn, |b| {
                 b.try_write_data_all(&[0xAA; 36]).unwrap(); // canned INQUIRY response
                 b.set_status(CommandStatus::Passed, 36);
             });
@@ -996,7 +996,7 @@ mod tests {
         const D: u32 = 100;
 
         let (shared, mut bbb) = new_bbb(PS);
-        enqueue(&shared, &cbw(D, Host::ExpectsDataIn), PS);
+        enqueue(&shared, &cbw(D, Host::DataIn), PS);
         let _ = bbb.poll(); // read CBW, enter DataTransferToHost
 
         assert_eq!(100, bbb.write_data(&[0xAA; 100]).unwrap());
@@ -1024,7 +1024,7 @@ mod tests {
         for ps in PACKET_SIZES {
             let (shared, mut bbb) = new_bbb(ps);
 
-            let mut bad = cbw(0, Host::ExpectsNoData);
+            let mut bad = cbw(0, Host::NoData);
             bad[0] ^= 0xFF; // corrupt dCBWSignature
             enqueue(&shared, &bad, ps);
 
@@ -1044,11 +1044,12 @@ mod tests {
 
     const PACKET_SIZES: [u16; 4] = [8, 16, 32, 64];
 
+    /// What the host expects: Spec. 6.7's Hn / Hi / Ho.
     #[derive(Copy, Clone)]
     enum Host {
-        ExpectsNoData,
-        ExpectsDataIn,  // device -> host
-        ExpectsDataOut, // host -> device
+        NoData,  // Hn
+        DataIn,  // Hi: device -> host
+        DataOut, // Ho: host -> device
     }
 
     /// Queues shared between the test and the bus moved into the allocator.
@@ -1125,7 +1126,7 @@ mod tests {
         c[..4].copy_from_slice(&0x43425355u32.to_le_bytes());
         c[4..8].copy_from_slice(&1u32.to_le_bytes()); // tag
         c[8..12].copy_from_slice(&data_len.to_le_bytes());
-        c[12] = if matches!(host, Host::ExpectsDataIn) {
+        c[12] = if matches!(host, Host::DataIn) {
             0x80
         } else {
             0x00
@@ -1158,7 +1159,7 @@ mod tests {
         let (shared, mut bbb) = new_bbb(packet_size);
 
         enqueue(&shared, &cbw(data_len, host), packet_size);
-        if matches!(host, Host::ExpectsDataOut) {
+        if matches!(host, Host::DataOut) {
             enqueue(&shared, &vec![0xAA; data_len as usize], packet_size);
         }
 
@@ -1166,7 +1167,7 @@ mod tests {
         // spans several packets at small MTUs, so this may take multiple polls.
         for _ in 0..64 {
             let _ = bbb.poll();
-            let out_drained = !matches!(host, Host::ExpectsDataOut) || bbb.left_to_transfer == 0;
+            let out_drained = !matches!(host, Host::DataOut) || bbb.left_to_transfer == 0;
             if bbb.get_command().is_some() && out_drained {
                 break;
             }
