@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- BBB: never put more than `dCBWDataTransferLength` bytes on the Bulk-In pipe (https://github.com/apohrebniak/usbd-storage/pull/31)
+
 ## [3.0.0] - 2026-07-05
 
 ### Changed
