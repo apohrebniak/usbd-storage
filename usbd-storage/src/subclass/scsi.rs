@@ -7,7 +7,7 @@ use core::fmt::Debug;
 use num_enum::TryFromPrimitive;
 use usb_device::bus::InterfaceNumber;
 use usb_device::bus::UsbBus;
-use usb_device::class::{ControlIn, UsbClass};
+use usb_device::class::{ControlIn, ControlOut, UsbClass};
 use usb_device::descriptor::DescriptorWriter;
 
 #[cfg(feature = "bbb")]
@@ -304,6 +304,10 @@ where
 
     fn reset(&mut self) {
         self.transport.reset()
+    }
+
+    fn control_out(&mut self, xfer: ControlOut<Bus>) {
+        self.transport.control_out(xfer)
     }
 
     fn control_in(&mut self, xfer: ControlIn<Bus>) {
