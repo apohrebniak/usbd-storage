@@ -13,6 +13,42 @@ use usbd_storage::transport::bbb::BulkOnly;
 
 const TIMEOUT: Duration = Duration::from_secs(1);
 
+/// A malformed CBW must not reach the subclass.
+///
+/// Spec. 6.6.1 makes an invalid CBW terminal until a Reset Recovery, so there is no
+/// command to dispatch. When `get_command` still reported one, the block came from an
+/// unpopulated `CommandBlockWrapper`; on the first CBW after power-up that is an empty
+/// CDB, and `scsi::parse_cb` indexes `cb[0]` -- an index-out-of-bounds panic in release
+/// builds, reachable from a single 31-byte packet on the wire.
+#[test]
+fn invalid_first_cbw_does_not_reach_the_subclass() {
+    let mut io_buf = [0u8; 1024];
+    let dummy_bus = DummyUsbBus::new();
+    let usb_bus = UsbBusAllocator::new(dummy_bus.clone());
+    let mut scsi = Scsi::new(&usb_bus, 64, 0, io_buf.as_mut_slice()).unwrap();
+    let _ = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0xabcd, 0xabcd)).build();
+
+    let mut bad = Cbw {
+        data_transfer_len: 0,
+        direction: DataDirection::NotExpected,
+        block: vec![0x12],
+    }
+    .into_bytes();
+    bad[0] ^= 0xFF; // corrupt dCBWSignature
+    dummy_bus.write_data(bad.as_slice());
+
+    scsi.poll(); // reads the CBW, enters the terminal invalid state
+
+    let mut dispatched = false;
+    scsi.poll_command(|_cmd| {
+        dispatched = true;
+        Ok(())
+    })
+    .unwrap();
+
+    assert!(!dispatched, "an invalid CBW was dispatched to the subclass");
+}
+
 #[test]
 fn should_fail_reading_data_from_host_with_bytes_processed() {
     run_on_scsi_bbb_bus_timed! { TIMEOUT, [

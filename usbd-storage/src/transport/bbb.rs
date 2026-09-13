@@ -190,8 +190,16 @@ where
     }
 
     /// Returns a Command Block if present
+    ///
+    /// There is no command block while a CBW is still being received, and none
+    /// after an invalid one: per Spec. 6.6.1 an invalid CBW leaves the device
+    /// STALLing both pipes until a Reset Recovery, so `self.cbw` holds either
+    /// nothing at all or the previous command's block.
     pub fn get_command(&self) -> Option<CommandBlock<'_>> {
-        if matches!(self.state, State::CommandTransfer) {
+        if matches!(
+            self.state,
+            State::CommandTransfer | State::CommandTransferInvalid
+        ) {
             return None;
         }
 
@@ -954,6 +962,31 @@ mod tests {
         bbb.buf.write([0xFFu8; BUF_SIZE].as_slice()); // fill the buffer
 
         assert_eq!(N, bbb.read_data([0u8; N].as_mut_slice()).unwrap());
+    }
+
+    #[test]
+    fn invalid_cbw_yields_no_command_block() {
+        // Spec. 6.6.1: an invalid CBW is terminal until a Reset Recovery, so there
+        // is no command to hand to the subclass. Before this was guarded, a first
+        // CBW with a bad signature yielded a CommandBlock over an unpopulated
+        // CommandBlockWrapper -- an empty CDB, which panics subclass CDB parsers.
+        for ps in PACKET_SIZES {
+            let (shared, mut bbb) = new_bbb(ps);
+
+            let mut bad = cbw(0, Host::ExpectsNoData);
+            bad[0] ^= 0xFF; // corrupt dCBWSignature
+            enqueue(&shared, &bad, ps);
+
+            for _ in 0..64 {
+                let _ = bbb.poll();
+                if matches!(bbb.state, State::CommandTransferInvalid) {
+                    break;
+                }
+            }
+
+            assert_matches!(bbb.state, State::CommandTransferInvalid, "ps={ps}");
+            assert!(bbb.get_command().is_none(), "ps={ps}");
+        }
     }
 
     // ---- test harness ----
