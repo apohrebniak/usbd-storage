@@ -289,10 +289,10 @@ impl UsbBus for DummyUsbBus {
             return Err(UsbError::InvalidEndpoint);
         }
 
-        if let Some(n) = ep.packets.front().map(|p| p.len()) {
-            if n > buf.len() {
-                return Err(UsbError::BufferOverflow);
-            }
+        if let Some(n) = ep.packets.front().map(|p| p.len())
+            && n > buf.len()
+        {
+            return Err(UsbError::BufferOverflow);
         }
 
         match ep.read_packet() {
@@ -308,32 +308,32 @@ impl UsbBus for DummyUsbBus {
     fn set_stalled(&self, ep_addr: EndpointAddress, stalled: bool) {
         let mut lock = self.inner.lock().unwrap();
 
-        if let Some(ep) = lock.ep_in.as_mut() {
-            if ep.addr == ep_addr {
-                return ep.stalled = stalled;
-            }
+        if let Some(ep) = lock.ep_in.as_mut()
+            && ep.addr == ep_addr
+        {
+            return ep.stalled = stalled;
         }
 
-        if let Some(ep) = lock.ep_out.as_mut() {
-            if ep.addr == ep_addr {
-                ep.stalled = stalled
-            }
+        if let Some(ep) = lock.ep_out.as_mut()
+            && ep.addr == ep_addr
+        {
+            ep.stalled = stalled
         }
     }
 
     fn is_stalled(&self, ep_addr: EndpointAddress) -> bool {
         let mut lock = self.inner.lock().unwrap();
 
-        if let Some(ep) = lock.ep_in.as_mut() {
-            if ep.addr == ep_addr {
-                return ep.stalled;
-            }
+        if let Some(ep) = lock.ep_in.as_mut()
+            && ep.addr == ep_addr
+        {
+            return ep.stalled;
         }
 
-        if let Some(ep) = lock.ep_out.as_mut() {
-            if ep.addr == ep_addr {
-                return ep.stalled;
-            }
+        if let Some(ep) = lock.ep_out.as_mut()
+            && ep.addr == ep_addr
+        {
+            return ep.stalled;
         }
 
         false
