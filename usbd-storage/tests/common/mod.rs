@@ -15,6 +15,8 @@ pub enum Step<BUS, CMD, CLASS> {
     DevIo,
     /// Handle a command on the Device side
     DevCmdHandle(fn(Command<CMD, CLASS>) -> ()),
+    /// Assert there is no active command returned to the subclass
+    DevAssertNoCommand,
 }
 
 // perhaps not the best way, but it's easier than battling against escaped borrows in closures
@@ -63,6 +65,11 @@ macro_rules! run_on_scsi_bbb_bus_timed {
                                     break;
                                 }
                             }
+                        }
+                        Step::DevAssertNoCommand => {
+                            let _ = scsi.poll_command(|_| {
+                                panic!("No command expected!");
+                            });
                         }
                     }
                 }

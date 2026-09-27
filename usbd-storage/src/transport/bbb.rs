@@ -189,12 +189,7 @@ where
         });
     }
 
-    /// Returns a Command Block if present
-    ///
-    /// There is no command block while a CBW is still being received, and none
-    /// after an invalid one: per Spec. 6.6.1 an invalid CBW leaves the device
-    /// STALLing both pipes until a Reset Recovery, so `self.cbw` holds either
-    /// nothing at all or the previous command's block.
+    /// Returns a valid Command Block if present.
     pub fn get_command(&self) -> Option<CommandBlock<'_>> {
         if matches!(
             self.state,
@@ -966,10 +961,6 @@ mod tests {
 
     #[test]
     fn invalid_cbw_yields_no_command_block() {
-        // Spec. 6.6.1: an invalid CBW is terminal until a Reset Recovery, so there
-        // is no command to hand to the subclass. Before this was guarded, a first
-        // CBW with a bad signature yielded a CommandBlock over an unpopulated
-        // CommandBlockWrapper -- an empty CDB, which panics subclass CDB parsers.
         for ps in PACKET_SIZES {
             let (shared, mut bbb) = new_bbb(ps);
 
@@ -988,8 +979,6 @@ mod tests {
             assert!(bbb.get_command().is_none(), "ps={ps}");
         }
     }
-
-    // ---- test harness ----
 
     const PACKET_SIZES: [u16; 4] = [8, 16, 32, 64];
 

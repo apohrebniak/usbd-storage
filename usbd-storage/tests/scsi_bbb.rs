@@ -22,6 +22,7 @@ const TIMEOUT: Duration = Duration::from_secs(1);
 /// builds, reachable from a single 31-byte packet on the wire.
 #[test]
 fn invalid_first_cbw_does_not_reach_the_subclass() {
+    /*
     let mut io_buf = [0u8; 1024];
     let dummy_bus = DummyUsbBus::new();
     let usb_bus = UsbBusAllocator::new(dummy_bus.clone());
@@ -47,6 +48,24 @@ fn invalid_first_cbw_does_not_reach_the_subclass() {
     .unwrap();
 
     assert!(!dispatched, "an invalid CBW was dispatched to the subclass");
+    */
+
+    run_on_scsi_bbb_bus_timed! { TIMEOUT, [
+        Step::HostIo(|bus: &DummyUsbBus| {
+            let bad_cbw = Cbw {
+                data_transfer_len: 0,
+                direction: DataDirection::NotExpected,
+                block: vec![0x12],
+            };
+
+            let mut bad_cbw_bytes = bad_cbw.into_bytes();
+            bad_cbw_bytes[0] ^= 0xFF; // corrupt dCBWSignature
+
+            bus.write_data(&bad_cbw_bytes);
+        }),
+        Step::DevIo,
+        Step::DevAssertNoCommand,
+    ]}
 }
 
 #[test]
