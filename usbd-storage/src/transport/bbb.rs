@@ -973,7 +973,7 @@ mod tests {
         for ps in PACKET_SIZES {
             let (shared, mut bbb) = new_bbb(ps);
 
-            let mut bad = cbw(0, Host::ExpectsNoData);
+            let mut bad = cbw(0, Host::NoData);
             bad[0] ^= 0xFF; // corrupt dCBWSignature
             enqueue(&shared, &bad, ps);
 
