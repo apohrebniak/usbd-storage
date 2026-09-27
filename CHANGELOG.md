@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- BBB: don't hand a command block to the subclass after an invalid CBW (https://github.com/apohrebniak/usbd-storage/pull/30)
+
 ## [3.0.0] - 2026-07-05
 
 ### Changed

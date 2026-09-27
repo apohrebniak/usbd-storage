@@ -189,9 +189,12 @@ where
         });
     }
 
-    /// Returns a Command Block if present
+    /// Returns a valid Command Block if present.
     pub fn get_command(&self) -> Option<CommandBlock<'_>> {
-        if matches!(self.state, State::CommandTransfer) {
+        if matches!(
+            self.state,
+            State::CommandTransfer | State::CommandTransferInvalid
+        ) {
             return None;
         }
 
@@ -956,7 +959,26 @@ mod tests {
         assert_eq!(N, bbb.read_data([0u8; N].as_mut_slice()).unwrap());
     }
 
-    // ---- test harness ----
+    #[test]
+    fn invalid_cbw_yields_no_command_block() {
+        for ps in PACKET_SIZES {
+            let (shared, mut bbb) = new_bbb(ps);
+
+            let mut bad = cbw(0, Host::NoData);
+            bad[0] ^= 0xFF; // corrupt dCBWSignature
+            enqueue(&shared, &bad, ps);
+
+            for _ in 0..64 {
+                let _ = bbb.poll();
+                if matches!(bbb.state, State::CommandTransferInvalid) {
+                    break;
+                }
+            }
+
+            assert_matches!(bbb.state, State::CommandTransferInvalid, "ps={ps}");
+            assert!(bbb.get_command().is_none(), "ps={ps}");
+        }
+    }
 
     const PACKET_SIZES: [u16; 4] = [8, 16, 32, 64];
 
