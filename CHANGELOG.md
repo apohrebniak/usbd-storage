@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Allow reading data bytes when BBB waits for status from user (https://github.com/apohrebniak/usbd-storage/pull/34)
 - BBB: Limit the amout of bytes in the buffer (https://github.com/apohrebniak/usbd-storage/pull/33)
 - BBB: don't hand a command block to the subclass after an invalid CBW (https://github.com/apohrebniak/usbd-storage/pull/30)
 

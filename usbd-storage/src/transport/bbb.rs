@@ -68,13 +68,17 @@ enum State {
     StatusTransfer,
     /// Device actively sends data to host
     DataTransferToHost,
-    /// User has set the status before all data has been sent
+    /// User has set the status before all `dCBWDataTransferLength` of data has been sent
     DataTransferToHostEnding,
-    /// Actively reads data from host
+    /// Device actively reads data from host
     DataTransferFromHost,
-    /// User has set the status before all data has been read
+    /// Device has read `dCBWDataTransferLength` of data from the host and now waits for status
+    /// from user
+    DataTransferFromHostStatusAwait,
+    /// User has set the status before all `dCBWDataTransferLength` of data has been read
     DataTransferFromHostEnding,
-    /// Device has sent or read all the data and now waits for status from the user
+    /// Device has sent or read all `dCBWDataTransferLength` of the data and now waits for status
+    /// from user
     DataTransferStatusAwait,
 }
 
@@ -182,6 +186,7 @@ where
                 | State::DataTransferFromHost
                 | State::DataTransferNoData
                 | State::DataTransferStatusAwait
+                | State::DataTransferFromHostStatusAwait,
         );
         let data_residue = self.cbw.data_transfer_len.saturating_sub(data_processed);
         trace!("usb: bbb: Set status: {} residue: {}", status, data_residue);
@@ -217,7 +222,10 @@ where
     ///
     /// [BulkOnlyError::InvalidState]: crate::transport::bbb::BulkOnlyError::InvalidState
     pub fn read_data(&mut self, dst: &mut [u8]) -> BulkOnlyTransportResult<usize> {
-        if !matches!(self.state, State::DataTransferFromHost) {
+        if !matches!(
+            self.state,
+            State::DataTransferFromHost | State::DataTransferFromHostStatusAwait
+        ) {
             return Err(TransportError::Error(BulkOnlyError::InvalidState));
         }
 
@@ -327,6 +335,12 @@ where
     }
 
     #[inline]
+    fn enter_state_data_transfer_from_host_status_await(&mut self) {
+        self.state = State::DataTransferFromHostStatusAwait;
+        trace!("usb: bbb: enter {:?}", self.state);
+    }
+
+    #[inline]
     fn enter_state_data_transfer_to_host_ending(&mut self) {
         self.state = State::DataTransferToHostEnding;
         trace!("usb: bbb: enter {:?}", self.state);
@@ -396,9 +410,7 @@ where
         assert_matches!(self.state, State::DataTransferNoData);
 
         self.enter_state_data_transfer_status_await();
-        self.handle_data_transfer_status_await()?;
-
-        Ok(())
+        self.handle_data_transfer_status_await()
     }
 
     /// Actively try to send more bytes if possible
@@ -447,7 +459,10 @@ where
 
     /// Just wait for the user to set the status
     fn handle_data_transfer_status_await(&mut self) -> BulkOnlyTransportResult<()> {
-        assert_matches!(self.state, State::DataTransferStatusAwait);
+        assert_matches!(
+            self.state,
+            State::DataTransferStatusAwait | State::DataTransferFromHostStatusAwait
+        );
 
         if self.has_status() {
             self.enter_state_status_transfer();
@@ -490,7 +505,7 @@ where
 
         // data is all read. wait for the status
         if self.left_to_transfer == 0 {
-            self.enter_state_data_transfer_status_await();
+            self.enter_state_data_transfer_from_host_status_await();
             return self.handle_data_transfer_status_await();
         }
 
@@ -726,7 +741,9 @@ where
             State::DataTransferFromHost => self.handle_data_transfer_from_host(),
             State::DataTransferFromHostEnding => self.handle_data_transfer_from_host_ending(),
             State::StatusTransfer => self.handle_status_transfer(),
-            State::DataTransferStatusAwait => self.handle_data_transfer_status_await(),
+            State::DataTransferFromHostStatusAwait | State::DataTransferStatusAwait => {
+                self.handle_data_transfer_status_await()
+            }
         }
     }
 }
@@ -967,6 +984,8 @@ mod tests {
         }
     }
 
+    // END: thirteen cases
+
     #[test]
     fn should_read_data_into_small_buffer() {
         const BUF_SIZE: usize = 512;
@@ -1012,8 +1031,43 @@ mod tests {
                 }
             }
 
-            assert_matches!(bbb.state, State::CommandTransferInvalid, "ps={ps}");
-            assert!(bbb.get_command().is_none(), "ps={ps}");
+            assert_matches!(bbb.state, State::CommandTransferInvalid);
+            assert!(bbb.get_command().is_none());
+        }
+    }
+
+    #[test]
+    fn can_read_all_data_in_small_chunks_before_setting_status() {
+        const CHUNK_SIZE: usize = 6; // smaller than smallest
+        const DATA_TRANSFER_SIZE: usize = 100; // would require multiple packets
+
+        for ps in PACKET_SIZES {
+            let (shared, mut bbb) = new_bbb(ps);
+
+            let cbw = cbw(100, Host::DataOut);
+            enqueue(&shared, &cbw, ps);
+
+            // read CBW
+            for _ in 0..cbw.len().div_ceil(ps as usize) {
+                let _ = bbb.poll(); // will try to start reading data
+            }
+            assert_matches!(bbb.state, State::DataTransferFromHost);
+
+            enqueue(&shared, &[0xFF; DATA_TRANSFER_SIZE], ps);
+            // read all data packets
+            for _ in 0..DATA_TRANSFER_SIZE.div_ceil(ps as usize) {
+                bbb.poll().unwrap(); // read data packet
+            }
+
+            bbb.poll().unwrap();
+            assert_matches!(bbb.state, State::DataTransferFromHostStatusAwait);
+            assert_eq!(bbb.buf.available_read(), DATA_TRANSFER_SIZE);
+
+            // consume data
+            while bbb.read_data(&mut [0u8; CHUNK_SIZE]).unwrap() > 0 {}
+
+            assert_eq!(bbb.buf.available_read(), 0);
+            assert_matches!(bbb.state, State::DataTransferFromHostStatusAwait);
         }
     }
 
