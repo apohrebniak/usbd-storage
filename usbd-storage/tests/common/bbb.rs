@@ -137,9 +137,7 @@ impl DummyUsbBus {
 
     /// Write Command Block Wrapper as if it was written by a USB host
     pub fn write_cbw(&self, cbw: Cbw) {
-        let mut lock = self.inner.lock().unwrap();
-        let ep = lock.ep_out.as_mut().unwrap();
-        ep.write_bytes(cbw.into_bytes().as_slice());
+        self.write_data(&cbw.into_bytes());
     }
 
     /// Read Command Status as if it was read by a USB host
@@ -289,10 +287,10 @@ impl UsbBus for DummyUsbBus {
             return Err(UsbError::InvalidEndpoint);
         }
 
-        if let Some(n) = ep.packets.front().map(|p| p.len()) {
-            if n > buf.len() {
-                return Err(UsbError::BufferOverflow);
-            }
+        if let Some(n) = ep.packets.front().map(|p| p.len())
+            && n > buf.len()
+        {
+            return Err(UsbError::BufferOverflow);
         }
 
         match ep.read_packet() {
@@ -308,32 +306,32 @@ impl UsbBus for DummyUsbBus {
     fn set_stalled(&self, ep_addr: EndpointAddress, stalled: bool) {
         let mut lock = self.inner.lock().unwrap();
 
-        if let Some(ep) = lock.ep_in.as_mut() {
-            if ep.addr == ep_addr {
-                return ep.stalled = stalled;
-            }
+        if let Some(ep) = lock.ep_in.as_mut()
+            && ep.addr == ep_addr
+        {
+            return ep.stalled = stalled;
         }
 
-        if let Some(ep) = lock.ep_out.as_mut() {
-            if ep.addr == ep_addr {
-                ep.stalled = stalled
-            }
+        if let Some(ep) = lock.ep_out.as_mut()
+            && ep.addr == ep_addr
+        {
+            ep.stalled = stalled
         }
     }
 
     fn is_stalled(&self, ep_addr: EndpointAddress) -> bool {
         let mut lock = self.inner.lock().unwrap();
 
-        if let Some(ep) = lock.ep_in.as_mut() {
-            if ep.addr == ep_addr {
-                return ep.stalled;
-            }
+        if let Some(ep) = lock.ep_in.as_mut()
+            && ep.addr == ep_addr
+        {
+            return ep.stalled;
         }
 
-        if let Some(ep) = lock.ep_out.as_mut() {
-            if ep.addr == ep_addr {
-                return ep.stalled;
-            }
+        if let Some(ep) = lock.ep_out.as_mut()
+            && ep.addr == ep_addr
+        {
+            return ep.stalled;
         }
 
         false
