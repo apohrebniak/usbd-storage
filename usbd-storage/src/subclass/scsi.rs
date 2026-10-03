@@ -244,9 +244,6 @@ impl<'alloc, Bus: UsbBus + 'alloc, Buf: BorrowMut<[u8]>> Scsi<BulkOnly<'alloc, B
 
     /// Poll current SCSI command
     ///
-    /// This method *must* be called after each call to [UsbClass::poll]. Otherwise,
-    /// unread data might be lost!
-    ///
     /// # Arguments
     /// * `callback` - closure, in which the SCSI command is processed. If there
     ///   is no current command available or it doesn't require any input, this
