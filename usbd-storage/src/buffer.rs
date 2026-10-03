@@ -82,7 +82,7 @@ impl<T: BorrowMut<[u8]>> Buffer<T> {
         debug_assert!(self.wpos <= inner.len());
     }
 
-    pub fn clean(&mut self) {
+    pub fn clear(&mut self) {
         self.rpos = 0;
         self.wpos = 0;
     }
@@ -93,7 +93,7 @@ impl<T: BorrowMut<[u8]>> Buffer<T> {
             self.wpos -= self.rpos;
             self.rpos = 0;
         } else {
-            self.clean();
+            self.clear();
         }
     }
 }
