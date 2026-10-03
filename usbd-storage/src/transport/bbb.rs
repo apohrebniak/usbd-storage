@@ -407,7 +407,7 @@ where
 
         // allow a short packet if needed
         let bytes_sent = if self.left_to_transfer < self.packet_size() as u32 {
-            self.write_packet(self.left_to_transfer as usize)?
+            self.write_packet()?
         } else {
             self.try_write_full_packet()?
         };
@@ -427,7 +427,7 @@ where
             return self.handle_read_cbw();
         }
 
-        self.write_packet(CSW_LEN)?;
+        self.write_packet()?;
 
         Ok(())
     }
@@ -456,14 +456,20 @@ where
             return self.handle_status_transfer();
         }
 
-        // fill up to has_to_send if the subclass left us short
         let available = self.buf.available_read();
-        if available < has_to_send {
-            self.buf.fill_up_to(FILL_BYTE, has_to_send - available);
-        }
 
-        let bytes_written = self.write_packet(has_to_send)?;
-        self.mark_as_transferred(bytes_written as u32);
+        if available >= has_to_send {
+            // enough data to send a full packet
+            let bytes_written = self.write_packet()?;
+            self.mark_as_transferred(bytes_written as u32);
+        } else {
+            // fill up to has_to_send
+            let to_fill = has_to_send.saturating_sub(available);
+            self.buf.fill_up_to(FILL_BYTE, to_fill);
+
+            let bytes_written = self.write_packet()?;
+            self.mark_as_transferred(bytes_written as u32);
+        }
 
         Ok(())
     }
@@ -596,21 +602,13 @@ where
 
     /// Tries to write a single packet into IN EP returning the number of bytes actually written
     ///
-    /// Might write a short packet if not enough data was in the buffer.
-    ///
-    /// `max` caps how many bytes may go on the wire, on top of the packet size and
-    /// whatever the buffer holds. During a Data-In transfer that cap is the number of
-    /// bytes the host still expects, so a subclass that staged more than
-    /// `dCBWDataTransferLength` cannot make the device overrun the host's buffer
-    /// (Spec. 6.7.2: the device may send data up to a total of
-    /// `dCBWDataTransferLength`). Bytes staged beyond the cap are dropped when the
-    /// Status Transfer state cleans the buffer.
-    fn write_packet(&mut self, max: usize) -> BulkOnlyTransportResult<usize> {
-        let limit = min(self.packet_size(), max);
+    /// Might write a short packet if not enough data was in the buffer
+    fn write_packet(&mut self) -> BulkOnlyTransportResult<usize> {
+        let packet_size = self.packet_size();
 
         let bytes_written = self.buf.read(|buf| {
             if !buf.is_empty() {
-                match self.in_ep.write(&buf[..min(limit, buf.len())]) {
+                match self.in_ep.write(&buf[..min(packet_size, buf.len())]) {
                     Ok(bytes_written) => {
                         trace!("usb: bbb: Wrote bytes: {}", bytes_written);
                         Ok(bytes_written)
@@ -636,7 +634,7 @@ where
             return Err(TransportError::Error(BulkOnlyError::FullPacketExpected));
         }
 
-        self.write_packet(self.packet_size())
+        self.write_packet()
     }
 }
 
