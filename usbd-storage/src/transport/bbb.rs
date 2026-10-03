@@ -43,6 +43,8 @@ pub enum BulkOnlyError {
     FullPacketExpected,
     /// The IO buffer cannot fit a CBW or a single full packet
     BufferTooSmall,
+    /// Cannot send more than `dCBWDataTransferLength` of data
+    TransferLengthExceeded,
 }
 
 /// Raw Command Block bytes
@@ -66,14 +68,14 @@ enum State {
     StatusTransfer,
     /// Device actively sends data to host
     DataTransferToHost,
-    /// Device has sent all the data and now waits for status from the user
-    DataTransferToHostStatusAwait,
     /// User has set the status before all data has been sent
     DataTransferToHostEnding,
     /// Actively reads data from host
     DataTransferFromHost,
     /// User has set the status before all data has been read
     DataTransferFromHostEnding,
+    /// Device has sent or read all the data and now waits for status from the user
+    DataTransferStatusAwait,
 }
 
 #[repr(u8)]
@@ -179,7 +181,7 @@ where
             State::DataTransferToHost
                 | State::DataTransferFromHost
                 | State::DataTransferNoData
-                | State::DataTransferToHostStatusAwait
+                | State::DataTransferStatusAwait
         );
         let data_residue = self.cbw.data_transfer_len.saturating_sub(data_processed);
         trace!("usb: bbb: Set status: {} residue: {}", status, data_residue);
@@ -230,7 +232,7 @@ where
             .unwrap_or(0))
     }
 
-    /// Writes data from the IO buffer returning the number of bytes actually written
+    /// Writes data into the IO buffer returning the number of bytes actually written
     ///
     /// # Arguments
     /// * `src` - bytes to write
@@ -245,22 +247,31 @@ where
             return Err(TransportError::Error(BulkOnlyError::InvalidState));
         }
 
-        Ok(self
-            .buf
-            .write(&src[..min(src.len(), self.left_to_transfer as usize)]))
+        let allowed_to_write = self.allowed_to_append_to_data_transfer();
+
+        Ok(self.buf.write(&src[..min(src.len(), allowed_to_write)]))
     }
 
-    /// Tries to write all data from `src` into the IO buffer returning the number of bytes actually written
+    /// Tries to write all data into the IO buffer returning the number of bytes actually written
+    ///
+    /// # Arguments
+    /// * `src` - bytes to write
     ///
     /// # Errors
     /// * [BulkOnlyError::IoBufferOverflow] - if not enough space is available
     /// * [BulkOnlyError::InvalidState] - if called during any but IN Data Transfer state
+    /// * [BulkOnlyError::TransferLengthExceeded] - if `src.len()` exceeds what's left to transfer according to dCBWDataTransferLength
     ///
     /// [BulkOnlyError::IoBufferOverflow]: crate::transport::bbb::BulkOnlyError::IoBufferOverflow
     /// [BulkOnlyError::InvalidState]: crate::transport::bbb::BulkOnlyError::InvalidState
+    /// [BulkOnlyError::TransferLengthExceeded]: crate::transport::bbb::BulkOnlyError::TransferLengthExceeded
     pub fn try_write_data_all(&mut self, src: &[u8]) -> BulkOnlyTransportResult<()> {
         if !matches!(self.state, State::DataTransferToHost) {
             return Err(TransportError::Error(BulkOnlyError::InvalidState));
+        }
+
+        if src.len() > self.allowed_to_append_to_data_transfer() {
+            return Err(TransportError::Error(BulkOnlyError::TransferLengthExceeded));
         }
 
         self.buf
@@ -285,6 +296,7 @@ where
         self.left_to_transfer = 0;
         self.in_ep.unstall();
         self.out_ep.unstall();
+        self.buf.clear();
 
         self.state = State::CommandTransfer;
         trace!("usb: bbb: enter {:?}", self.state);
@@ -309,8 +321,8 @@ where
     }
 
     #[inline]
-    fn enter_state_data_transfer_to_host_status_await(&mut self) {
-        self.state = State::DataTransferToHostStatusAwait;
+    fn enter_state_data_transfer_status_await(&mut self) {
+        self.state = State::DataTransferStatusAwait;
         trace!("usb: bbb: enter {:?}", self.state);
     }
 
@@ -339,7 +351,7 @@ where
         };
 
         // this state's invariant
-        self.buf.clean();
+        self.buf.clear();
         self.buf.write(csw_bytes.as_slice());
 
         self.state = State::StatusTransfer;
@@ -383,8 +395,8 @@ where
     fn handle_data_transfer_no_data(&mut self) -> BulkOnlyTransportResult<()> {
         assert_matches!(self.state, State::DataTransferNoData);
 
-        self.enter_state_data_transfer_to_host_status_await();
-        self.handle_data_transfer_to_host_status_await()?;
+        self.enter_state_data_transfer_status_await();
+        self.handle_data_transfer_status_await()?;
 
         Ok(())
     }
@@ -392,11 +404,12 @@ where
     /// Actively try to send more bytes if possible
     fn handle_data_transfer_to_host(&mut self) -> BulkOnlyTransportResult<()> {
         assert_matches!(self.state, State::DataTransferToHost);
+        self.assert_buffer_len_not_exceeding();
 
         // data is all sent. wait for the status
         if self.left_to_transfer == 0 {
-            self.enter_state_data_transfer_to_host_status_await();
-            return self.handle_data_transfer_to_host_status_await();
+            self.enter_state_data_transfer_status_await();
+            return self.handle_data_transfer_status_await();
         }
 
         // is this a short transfer?
@@ -433,8 +446,8 @@ where
     }
 
     /// Just wait for the user to set the status
-    fn handle_data_transfer_to_host_status_await(&mut self) -> BulkOnlyTransportResult<()> {
-        assert_matches!(self.state, State::DataTransferToHostStatusAwait);
+    fn handle_data_transfer_status_await(&mut self) -> BulkOnlyTransportResult<()> {
+        assert_matches!(self.state, State::DataTransferStatusAwait);
 
         if self.has_status() {
             self.enter_state_status_transfer();
@@ -447,6 +460,7 @@ where
     /// Send off what's left
     fn handle_data_transfer_to_host_ending(&mut self) -> BulkOnlyTransportResult<()> {
         assert_matches!(self.state, State::DataTransferToHostEnding);
+        self.assert_buffer_len_not_exceeding();
 
         let has_to_send = min(self.left_to_transfer as usize, self.packet_size());
 
@@ -458,18 +472,14 @@ where
 
         let available = self.buf.available_read();
 
-        if available >= has_to_send {
-            // enough data to send a full packet
-            let bytes_written = self.write_packet()?;
-            self.mark_as_transferred(bytes_written as u32);
-        } else {
+        if available < has_to_send {
             // fill up to has_to_send
             let to_fill = has_to_send.saturating_sub(available);
             self.buf.fill_up_to(FILL_BYTE, to_fill);
-
-            let bytes_written = self.write_packet()?;
-            self.mark_as_transferred(bytes_written as u32);
         }
+
+        let bytes_written = self.write_packet()?;
+        self.mark_as_transferred(bytes_written as u32);
 
         Ok(())
     }
@@ -480,8 +490,8 @@ where
 
         // data is all read. wait for the status
         if self.left_to_transfer == 0 {
-            self.enter_state_data_transfer_to_host_status_await();
-            return self.handle_data_transfer_to_host_status_await();
+            self.enter_state_data_transfer_status_await();
+            return self.handle_data_transfer_status_await();
         }
 
         // status is set. keep reading anyway
@@ -501,7 +511,7 @@ where
 
         // keep reading up to the data_residue
         if self.left_to_transfer > 0 {
-            self.buf.clean(); // no one is going to read this data anyway
+            self.buf.clear(); // no one is going to read this data anyway
 
             let bytes_read = self.read_packet()?;
             self.mark_as_transferred(bytes_read as u32);
@@ -552,6 +562,7 @@ where
 
         self.cbw = cbw;
         self.left_to_transfer = cbw.data_transfer_len;
+        self.buf.clear();
 
         match cbw.direction {
             DataDirection::Out => {
@@ -567,6 +578,17 @@ where
                 self.handle_data_transfer_no_data()
             }
         }
+    }
+
+    #[inline]
+    fn assert_buffer_len_not_exceeding(&self) {
+        assert!(self.buf.available_read() <= self.left_to_transfer as usize);
+    }
+
+    #[inline]
+    fn allowed_to_append_to_data_transfer(&self) -> usize {
+        self.left_to_transfer
+            .saturating_sub(self.buf.available_read() as u32) as usize
     }
 
     #[inline]
@@ -700,13 +722,11 @@ where
             State::CommandTransferInvalid => self.handle_cbw_invalid(),
             State::DataTransferNoData => self.handle_data_transfer_no_data(),
             State::DataTransferToHost => self.handle_data_transfer_to_host(),
-            State::DataTransferToHostStatusAwait => {
-                self.handle_data_transfer_to_host_status_await()
-            }
             State::DataTransferToHostEnding => self.handle_data_transfer_to_host_ending(),
             State::DataTransferFromHost => self.handle_data_transfer_from_host(),
             State::DataTransferFromHostEnding => self.handle_data_transfer_from_host_ending(),
             State::StatusTransfer => self.handle_status_transfer(),
+            State::DataTransferStatusAwait => self.handle_data_transfer_status_await(),
         }
     }
 }
@@ -957,6 +977,23 @@ mod tests {
         bbb.buf.write([0xFFu8; BUF_SIZE].as_slice()); // fill the buffer
 
         assert_eq!(N, bbb.read_data([0u8; N].as_mut_slice()).unwrap());
+    }
+
+    #[test]
+    fn try_write_data_all_forbids_sending_more_data() {
+        const D: u32 = 4; // less than a packet
+
+        for ps in PACKET_SIZES {
+            let (_shared, mut bbb) = new_bbb(ps);
+
+            bbb.left_to_transfer = D;
+            bbb.enter_state_data_transfer_to_host();
+
+            assert_matches!(
+                bbb.try_write_data_all(&[0xAA; 36]),
+                Err(TransportError::Error(BulkOnlyError::TransferLengthExceeded))
+            );
+        }
     }
 
     #[test]
