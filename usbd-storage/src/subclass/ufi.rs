@@ -2,6 +2,7 @@
 
 use crate::CLASS_MASS_STORAGE;
 use crate::fmt::trace;
+use crate::subclass::for_another_interface;
 use crate::transport::Transport;
 use usb_device::bus::InterfaceNumber;
 use usb_device::bus::UsbBus;
@@ -303,11 +304,15 @@ where
     }
 
     fn control_out(&mut self, xfer: ControlOut<Bus>) {
-        self.transport.control_out(xfer)
+        if !for_another_interface(xfer.request(), self.interface) {
+            self.transport.control_out(xfer)
+        }
     }
 
     fn control_in(&mut self, xfer: ControlIn<Bus>) {
-        self.transport.control_in(xfer)
+        if !for_another_interface(xfer.request(), self.interface) {
+            self.transport.control_in(xfer)
+        }
     }
 
     fn poll(&mut self) {
