@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- RP2040 example: emit the linker scripts from `build.rs`, so a build from the workspace root links a bootable image (https://github.com/apohrebniak/usbd-storage/pull/37)
 - Allow reading data bytes when BBB waits for status from user (https://github.com/apohrebniak/usbd-storage/pull/34)
 - BBB: Limit the amout of bytes in the buffer (https://github.com/apohrebniak/usbd-storage/pull/33)
 - BBB: don't hand a command block to the subclass after an invalid CBW (https://github.com/apohrebniak/usbd-storage/pull/30)

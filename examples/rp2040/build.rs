@@ -11,4 +11,11 @@ fn main() {
     println!("cargo:rustc-link-search={}", out.display());
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=memory.x");
+
+    // Linker scripts go here rather than in `.cargo/config.toml`: cargo reads that file
+    // only when invoked from this directory, so a workspace-root build would link
+    // without them.
+    println!("cargo:rustc-link-arg-bins=--nmagic");
+    println!("cargo:rustc-link-arg-bins=-Tlink.x");
+    println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
 }
