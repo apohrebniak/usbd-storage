@@ -1016,6 +1016,30 @@ mod tests {
     }
 
     #[test]
+    fn staged_data_in_never_exceeds_transfer_length() {
+        // Spec. 6.7.2: "The device may send data up to a total of dCBWDataTransferLength."
+        // Bytes already staged in the buffer count against that total, not only the ones
+        // already sent, so a second write after a partial send must be refused.
+        const D: u32 = 100; // several packets at every packet size
+
+        for ps in PACKET_SIZES {
+            let (csw, data) = run(ps, D, Host::DataIn, |b| {
+                assert_eq!(b.write_data(&[0xAA; D as usize]).unwrap(), D as usize);
+                let _ = b.poll(); // sends one packet, the rest stays staged
+                assert_eq!(
+                    b.write_data(&[0xBB; D as usize]).unwrap(),
+                    0,
+                    "ps={ps}: the whole transfer length is already staged"
+                );
+                b.set_status(CommandStatus::Passed, D);
+            });
+            assert_eq!(csw.status, 0, "ps={ps}");
+            assert_eq!(csw.residue, 0, "ps={ps}");
+            assert_eq!(data, vec![0xAA; D as usize], "ps={ps}");
+        }
+    }
+
+    #[test]
     fn invalid_cbw_yields_no_command_block() {
         for ps in PACKET_SIZES {
             let (shared, mut bbb) = new_bbb(ps);
