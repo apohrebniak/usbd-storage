@@ -3,7 +3,7 @@
 use core::fmt::Debug;
 use usb_device::UsbError;
 use usb_device::bus::UsbBus;
-use usb_device::class::ControlIn;
+use usb_device::class::{ControlIn, ControlOut};
 use usb_device::descriptor::DescriptorWriter;
 
 #[cfg(feature = "bbb")]
@@ -35,6 +35,20 @@ pub trait Transport {
     fn reset(&mut self);
 
     fn control_in(&mut self, xfer: ControlIn<Self::Bus>);
+
+    /// Handles a host-to-device control request addressed to this interface.
+    ///
+    /// The default implementation ignores the request, which leaves
+    /// [usb_device] to reject it.
+    ///
+    /// A transport needs this whenever one of its class-specific requests has
+    /// `bmRequestType` set to host-to-device: [usb_device] dispatches those to
+    /// [UsbClass::control_out], never to [control_in]. The BBB Mass Storage
+    /// Reset is one such request.
+    ///
+    /// [UsbClass::control_out]: usb_device::class::UsbClass::control_out
+    /// [control_in]: Transport::control_in
+    fn control_out(&mut self, _xfer: ControlOut<Self::Bus>) {}
 
     /// Drives the IO.
     ///

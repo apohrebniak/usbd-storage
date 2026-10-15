@@ -12,10 +12,28 @@ use {
     usb_device::bus::UsbBus,
 };
 
+#[cfg(any(feature = "scsi", feature = "ufi"))]
+use usb_device::{
+    bus::InterfaceNumber,
+    control::{Recipient, Request},
+};
+
 #[cfg(feature = "scsi")]
 pub mod scsi;
 #[cfg(feature = "ufi")]
 pub mod ufi;
+
+/// Whether `req` is addressed to an interface other than `interface`.
+///
+/// [usb_device] offers every control request to every class in turn, so on a
+/// composite device a class also sees the requests meant for its siblings. The
+/// class requests of a transport carry the interface number in `wIndex` (BBB
+/// Spec. 3.1, 3.2), and one for another interface is not the transport's to
+/// answer, even when its `bRequest` matches.
+#[cfg(any(feature = "scsi", feature = "ufi"))]
+pub(crate) fn for_another_interface(req: &Request, interface: InterfaceNumber) -> bool {
+    req.recipient == Recipient::Interface && req.index != u16::from(u8::from(interface))
+}
 
 /// The subclass' command and a LUN it is addressed to
 pub struct Command<'a, Kind, Class> {

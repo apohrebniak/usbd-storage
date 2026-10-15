@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Transport::control_out`, defaulted to ignoring the request (https://github.com/apohrebniak/usbd-storage/pull/36)
+
 ### Fixed
 
+- BBB: honour the Bulk-Only Mass Storage Reset, which is host-to-device and so never reached `control_in` (https://github.com/apohrebniak/usbd-storage/pull/36)
+- SCSI, UFI: leave class requests addressed to another interface alone, so a composite device's sibling class keeps its own `bRequest` 0xFE and 0xFF (https://github.com/apohrebniak/usbd-storage/pull/36)
 - Allow reading data bytes when BBB waits for status from user (https://github.com/apohrebniak/usbd-storage/pull/34)
 - BBB: Limit the amout of bytes in the buffer (https://github.com/apohrebniak/usbd-storage/pull/33)
 - BBB: don't hand a command block to the subclass after an invalid CBW (https://github.com/apohrebniak/usbd-storage/pull/30)

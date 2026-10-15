@@ -1,7 +1,9 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use usb_device::bus::{PollResult, UsbBus};
+use usb_device::class::UsbClass;
 use usb_device::class_prelude::{EndpointAddress, EndpointType};
+use usb_device::device::UsbDevice;
 use usb_device::{UsbDirection, UsbError};
 
 const MAX_CB_LEN: u8 = 16;
@@ -185,6 +187,30 @@ impl DummyUsbBus {
         bytes
     }
 
+    /// Run one control transfer the way a USB host would, and return what the device
+    /// answered on endpoint 0, or `None` when it refused the request
+    pub fn control(
+        &self,
+        device: &mut UsbDevice<'_, DummyUsbBus>,
+        class: &mut dyn UsbClass<DummyUsbBus>,
+        setup: [u8; 8],
+    ) -> Option<Vec<u8>> {
+        {
+            let mut lock = self.inner.lock().unwrap();
+            lock.ep0 = Ep0::default();
+            lock.ep0.setup.push_back(setup);
+        }
+        for _ in 0..64 {
+            device.poll(&mut [&mut *class]);
+            let lock = self.inner.lock().unwrap();
+            if lock.ep0.setup.is_empty() && !lock.ep0.in_pending {
+                break;
+            }
+        }
+        let lock = self.inner.lock().unwrap();
+        (!lock.ep0.stalled).then(|| lock.ep0.data_in.clone())
+    }
+
     pub fn bytes_processed(&self) -> BytesProcessed {
         let lock = self.inner.lock().unwrap();
         BytesProcessed {
@@ -202,8 +228,34 @@ impl DummyUsbBus {
     }
 }
 
+/// A SETUP packet: bmRequestType, bRequest, wValue, wIndex, wLength
+pub fn setup(request_type: u8, request: u8, value: u16, index: u16, length: u16) -> [u8; 8] {
+    let mut packet = [0u8; 8];
+    packet[0] = request_type;
+    packet[1] = request;
+    packet[2..4].copy_from_slice(&value.to_le_bytes());
+    packet[4..6].copy_from_slice(&index.to_le_bytes());
+    packet[6..8].copy_from_slice(&length.to_le_bytes());
+    packet
+}
+
+/// Endpoint 0, as the host sees it
+#[derive(Default)]
+struct Ep0 {
+    /// SETUP packets the host has queued
+    setup: VecDeque<[u8; 8]>,
+    /// what the device wrote on endpoint 0 IN
+    data_in: Vec<u8>,
+    /// a write on endpoint 0 IN waits for its completion to be reported
+    in_pending: bool,
+    /// the device stalled endpoint 0, i.e. refused the request; sticky until the next
+    /// transfer, so that an unstall cannot hide the refusal
+    stalled: bool,
+}
+
 struct Inner {
     enabled: bool,
+    ep0: Ep0,
     ep_in: Option<DummyEp>,
     ep_out: Option<DummyEp>,
 }
@@ -212,6 +264,7 @@ impl Inner {
     fn new() -> Self {
         Self {
             enabled: false,
+            ep0: Ep0::default(),
             ep_in: None,
             ep_out: None,
         }
@@ -264,6 +317,13 @@ impl UsbBus for DummyUsbBus {
 
     fn write(&self, ep_addr: EndpointAddress, buf: &[u8]) -> usb_device::Result<usize> {
         let mut lock = self.inner.lock().unwrap();
+
+        if ep_addr.index() == 0 {
+            lock.ep0.data_in.extend_from_slice(buf);
+            lock.ep0.in_pending = true;
+            return Ok(buf.len());
+        }
+
         let ep = lock.ep_in.as_mut().unwrap();
 
         if ep.addr != ep_addr {
@@ -281,6 +341,17 @@ impl UsbBus for DummyUsbBus {
 
     fn read(&self, ep_addr: EndpointAddress, buf: &mut [u8]) -> usb_device::Result<usize> {
         let mut lock = self.inner.lock().unwrap();
+
+        if ep_addr.index() == 0 {
+            return match lock.ep0.setup.pop_front() {
+                Some(setup) => {
+                    buf[..setup.len()].copy_from_slice(&setup);
+                    Ok(setup.len())
+                }
+                None => Err(UsbError::WouldBlock),
+            };
+        }
+
         let ep = lock.ep_out.as_mut().unwrap();
 
         if ep.addr != ep_addr {
@@ -305,6 +376,10 @@ impl UsbBus for DummyUsbBus {
 
     fn set_stalled(&self, ep_addr: EndpointAddress, stalled: bool) {
         let mut lock = self.inner.lock().unwrap();
+
+        if ep_addr.index() == 0 {
+            return lock.ep0.stalled |= stalled;
+        }
 
         if let Some(ep) = lock.ep_in.as_mut()
             && ep.addr == ep_addr
@@ -342,6 +417,25 @@ impl UsbBus for DummyUsbBus {
     fn resume(&self) {}
 
     fn poll(&self) -> PollResult {
+        let mut lock = self.inner.lock().unwrap();
+
+        if !lock.ep0.setup.is_empty() {
+            return PollResult::Data {
+                ep_out: 0,
+                ep_in_complete: 0,
+                ep_setup: 1,
+            };
+        }
+
+        if lock.ep0.in_pending {
+            lock.ep0.in_pending = false;
+            return PollResult::Data {
+                ep_out: 0,
+                ep_in_complete: 1,
+                ep_setup: 0,
+            };
+        }
+
         PollResult::None
     }
 }

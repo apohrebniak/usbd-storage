@@ -8,7 +8,7 @@ use core::borrow::BorrowMut;
 use core::cmp::min;
 use usb_device::UsbError;
 use usb_device::bus::{UsbBus, UsbBusAllocator};
-use usb_device::class::ControlIn;
+use usb_device::class::{ControlIn, ControlOut};
 use usb_device::class_prelude::DescriptorWriter;
 use usb_device::control::{Recipient, RequestType};
 use usb_device::endpoint::{Endpoint, In, Out};
@@ -314,6 +314,27 @@ where
     fn enter_state_cbw_invalid(&mut self) {
         self.state = State::CommandTransferInvalid;
         trace!("usb: bbb: enter {:?}", self.state);
+    }
+
+    /// Readies the transport for the next CBW, per Spec. 3.1.
+    ///
+    /// Deliberately not [enter_state_command_transfer]: 3.1 requires the device
+    /// to "preserve the value of its bulk data toggle bits and endpoint STALL
+    /// conditions" across the reset, and unstalling here would break the host's
+    /// Reset Recovery sequence (5.3.4), whose second and third steps are the
+    /// Clear Feature (HALT) requests that clear those very stalls.
+    ///
+    /// Any partially received CBW is dropped, along with a status the subclass
+    /// set for the abandoned command.
+    ///
+    /// [enter_state_command_transfer]: BulkOnly::enter_state_command_transfer
+    fn mass_storage_reset(&mut self) {
+        self.cs = None;
+        self.left_to_transfer = 0;
+        self.buf.clear();
+
+        self.state = State::CommandTransfer;
+        trace!("usb: bbb: mass storage reset, enter {:?}", self.state);
     }
 
     #[inline]
@@ -706,21 +727,35 @@ where
 
         trace!("usb: bbb: Recv ctrl_in: {}", req);
 
-        match req.request {
-            // Spec. section 3.1
-            CLASS_SPECIFIC_BULK_ONLY_MASS_STORAGE_RESET => {
-                self.enter_state_command_transfer();
+        // Spec. section 3.2. The Mass Storage Reset (3.1) is host-to-device and
+        // arrives at control_out, not here.
+        if req.request == CLASS_SPECIFIC_GET_MAX_LUN {
+            // always respond with LUN. A failure here means the host
+            // misbehaved or the bus glitched mid control-transfer; log and
+            // return rather than panicking the device.
+            if let Err(err) = xfer.accept_with(&[self.max_lun]) {
+                warning!("usb: bbb: Get Max Lun accept failed: {}", err);
             }
-            // Spec. section 3.2
-            CLASS_SPECIFIC_GET_MAX_LUN => {
-                // always respond with LUN. A failure here means the host
-                // misbehaved or the bus glitched mid control-transfer; log and
-                // return rather than panicking the device.
-                if let Err(err) = xfer.accept_with(&[self.max_lun]) {
-                    warning!("usb: bbb: Get Max Lun accept failed: {}", err);
-                }
+        }
+    }
+
+    fn control_out(&mut self, xfer: ControlOut<Self::Bus>) {
+        let req = xfer.request();
+
+        // not interested in this request
+        if !(req.request_type == RequestType::Class && req.recipient == Recipient::Interface) {
+            return;
+        }
+
+        trace!("usb: bbb: Recv ctrl_out: {}", req);
+
+        // Spec. section 3.1. bmRequestType is 00100001b -- host-to-device --
+        // so this is the only place the request can be seen.
+        if req.request == CLASS_SPECIFIC_BULK_ONLY_MASS_STORAGE_RESET {
+            self.mass_storage_reset();
+            if let Err(err) = xfer.accept() {
+                warning!("usb: bbb: Mass Storage Reset accept failed: {}", err);
             }
-            _ => {}
         }
     }
 
@@ -1069,6 +1104,65 @@ mod tests {
             assert_eq!(bbb.buf.available_read(), 0);
             assert_matches!(bbb.state, State::DataTransferFromHostStatusAwait);
         }
+    }
+
+    /// Spec. 6.6.1 makes the invalid-CBW state terminal until a Reset Recovery
+    /// (5.3.4), whose first step is the Mass Storage Reset. Before this, the
+    /// request was matched in `control_in` -- where it can never arrive -- so
+    /// the state was unescapable short of a bus reset.
+    ///
+    /// Driven through `mass_storage_reset` rather than `control_out`, because
+    /// `ControlOut::new` is `pub(crate)` in usb-device: the dispatch around it
+    /// is six lines mirroring `control_in`'s, the recovery is the substance.
+    #[test]
+    fn mass_storage_reset_readies_the_transport_for_the_next_cbw() {
+        for ps in PACKET_SIZES {
+            let (shared, mut bbb) = new_bbb(ps);
+
+            let mut bad = cbw(0, Host::NoData);
+            bad[0] ^= 0xFF; // corrupt dCBWSignature
+            enqueue(&shared, &bad, ps);
+
+            for _ in 0..64 {
+                let _ = bbb.poll();
+                if matches!(bbb.state, State::CommandTransferInvalid) {
+                    break;
+                }
+            }
+            assert_matches!(bbb.state, State::CommandTransferInvalid, "ps={ps}");
+
+            bbb.mass_storage_reset();
+            assert_matches!(bbb.state, State::CommandTransfer, "ps={ps}");
+
+            // and the next CBW is accepted again
+            enqueue(&shared, &cbw(0, Host::NoData), ps);
+            for _ in 0..64 {
+                let _ = bbb.poll();
+                if bbb.get_command().is_some() {
+                    break;
+                }
+            }
+            assert!(bbb.get_command().is_some(), "ps={ps}");
+        }
+    }
+
+    /// The partial CBW that provoked the reset must not be left in the buffer
+    /// for the next command to read as its data.
+    #[test]
+    fn mass_storage_reset_drops_buffered_bytes_and_status() {
+        let (_shared, mut bbb) = new_bbb(64);
+
+        bbb.state = State::DataTransferFromHost;
+        bbb.left_to_transfer = 32;
+        bbb.buf.write([0xAAu8; 16].as_slice());
+        bbb.set_status(CommandStatus::Passed, 0);
+
+        bbb.mass_storage_reset();
+
+        assert_matches!(bbb.state, State::CommandTransfer);
+        assert_eq!(bbb.left_to_transfer, 0);
+        assert!(!bbb.has_status());
+        assert_eq!(bbb.buf.available_read(), 0);
     }
 
     const PACKET_SIZES: [u16; 4] = [8, 16, 32, 64];

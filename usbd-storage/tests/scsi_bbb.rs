@@ -1,7 +1,7 @@
 mod common;
 
 use crate::common::Step;
-use crate::common::bbb::{Cbw, CommandStatus, Csw, DataDirection, DummyUsbBus};
+use crate::common::bbb::{Cbw, CommandStatus, Csw, DataDirection, DummyUsbBus, setup};
 use crate::common::scsi::cmd_into_bytes;
 use std::time::Duration;
 use usb_device::bus::UsbBusAllocator;
@@ -212,4 +212,87 @@ fn should_fail_in_the_middle_writing_data_to_host() {
             assert_eq!(expected_csw, bus.read_cs().unwrap());
         }),
     ] }
+}
+
+/// Spec. 3.1 and 3.2 address both Bulk-Only class requests to the Mass Storage
+/// interface, in `wIndex`. usb-device offers every control request to every class, so
+/// on a composite device the requests meant for a sibling interface reach this class
+/// too. Answering one steals it from the class it was meant for, and a Mass Storage
+/// Reset honoured that way also drops the command in flight.
+#[test]
+fn class_requests_for_another_interface_are_left_alone() {
+    let mut io_buf = [0u8; 1024];
+    let bus = DummyUsbBus::new();
+    let alloc = UsbBusAllocator::new(bus.clone());
+    let mut scsi = Scsi::new(&alloc, 64, 0, io_buf.as_mut_slice()).unwrap();
+    let theirs = u16::from(u8::from(alloc.interface()));
+    let ours = 0;
+    assert_eq!(theirs, 1, "Scsi should hold the first interface");
+    let mut device = UsbDeviceBuilder::new(&alloc, UsbVidPid(0xabcd, 0xabcd)).build();
+
+    let get_max_lun = |index| setup(0xA1, 0xFE, 0, index, 1);
+    let reset = |index| setup(0x21, 0xFF, 0, index, 0);
+
+    assert_eq!(
+        bus.control(&mut device, &mut scsi, get_max_lun(theirs)),
+        None,
+        "GET MAX LUN for another interface should be refused"
+    );
+    assert_eq!(
+        bus.control(&mut device, &mut scsi, get_max_lun(ours)),
+        Some(vec![0]),
+        "GET MAX LUN for this interface should be answered"
+    );
+
+    bus.write_cbw(Cbw {
+        data_transfer_len: 0,
+        direction: DataDirection::NotExpected,
+        block: cmd_into_bytes(ScsiCommand::TestUnitReady),
+    });
+    drive(&bus, &mut scsi);
+    assert!(has_command(&mut scsi), "the CBW should be in flight");
+
+    assert_eq!(
+        bus.control(&mut device, &mut scsi, reset(theirs)),
+        None,
+        "a Mass Storage Reset for another interface should be refused"
+    );
+    assert!(
+        has_command(&mut scsi),
+        "a Mass Storage Reset for another interface should leave the command in flight"
+    );
+
+    assert_eq!(
+        bus.control(&mut device, &mut scsi, reset(ours)),
+        Some(vec![]),
+        "a Mass Storage Reset for this interface should be accepted"
+    );
+    assert!(
+        !has_command(&mut scsi),
+        "a Mass Storage Reset for this interface should drop the command in flight"
+    );
+}
+
+/// Drive the device until it has no IO left to do
+fn drive(bus: &DummyUsbBus, scsi: &mut Scsi<BulkOnly<DummyUsbBus, &mut [u8]>>) {
+    let mut bytes_processed = bus.bytes_processed();
+    loop {
+        scsi.poll();
+        let new = bus.bytes_processed();
+        if new == bytes_processed {
+            break;
+        }
+        bytes_processed = new;
+    }
+}
+
+/// Whether a command waits for the subclass, which leaves it in flight
+fn has_command(scsi: &mut Scsi<BulkOnly<DummyUsbBus, &mut [u8]>>) -> bool {
+    let mut seen = false;
+    scsi.poll_command(|_| {
+        seen = true;
+        Ok(())
+    })
+    .unwrap();
+    seen
 }
