@@ -35,9 +35,6 @@ version = "1"
 [dependencies.rp2040-boot2]
 version  = "0.3"
 
-[dependencies.rp2040-flash]
-version = "0.6"
-
 [dependencies.rp2040-hal]
 version = "0.11"
 features = ["critical-section-impl"]

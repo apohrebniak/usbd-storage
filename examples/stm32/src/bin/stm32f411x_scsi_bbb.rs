@@ -21,11 +21,11 @@ use usbd_storage::transport::bbb::{BulkOnly, BulkOnlyError};
 
 static mut USB_EP_MEMORY: [u32; 1024] = [0u32; 1024];
 /// Not necessarily `'static`. May reside in some special memory location
-static mut USB_TRANSPORT_BUF: MaybeUninit<[u8; 512]> = MaybeUninit::uninit();
+static mut USB_TRANSPORT_BUF: MaybeUninit<[u8; BLOCK_SIZE as usize]> = MaybeUninit::uninit();
 
-static FAT: &[u8; 102400] = include_bytes!("../../empty_fat12.img");
+static FAT: &[u8; (BLOCK_SIZE * BLOCKS) as usize] = include_bytes!("../../../empty_fat12.img");
 
-static STORAGE: Mutex<RefCell<[u8; (BLOCKS * BLOCK_SIZE) as usize]>> =
+static STORAGE: Mutex<RefCell<[u8; (BLOCK_SIZE * BLOCKS) as usize]>> =
     Mutex::new(RefCell::new([0u8; (BLOCK_SIZE * BLOCKS) as usize]));
 
 static STATE: Mutex<RefCell<State>> = Mutex::new(RefCell::new(State {

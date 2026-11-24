@@ -18,13 +18,6 @@ use usbd_storage::transport::bbb::{BulkOnly, BulkOnlyError};
 /// Not necessarily `'static`. May reside in some special memory location
 static mut USB_TRANSPORT_BUF: MaybeUninit<[u8; BLOCK_SIZE as usize]> = MaybeUninit::uninit();
 
-#[unsafe(link_section = ".filesystem")]
-#[used]
-pub static FILESYSTEM: [u8; (BLOCK_SIZE * BLOCKS) as usize] = [0u8; (BLOCK_SIZE * BLOCKS) as usize];
-
-static WRITE_BUFFER: Mutex<RefCell<[u8; BLOCK_SIZE as usize]>> =
-    Mutex::new(RefCell::new([0u8; BLOCK_SIZE as usize]));
-
 static STATE: Mutex<RefCell<State>> = Mutex::new(RefCell::new(State {
     storage_offset: 0,
     sense_key: None,
@@ -32,8 +25,13 @@ static STATE: Mutex<RefCell<State>> = Mutex::new(RefCell::new(State {
     sense_qualifier: None,
 }));
 
-const BLOCK_SIZE: u32 = 4096;
-const BLOCKS: u32 = 256;
+static FAT: &[u8; (BLOCK_SIZE * BLOCKS) as usize] = include_bytes!("../../../empty_fat12.img");
+
+static STORAGE: Mutex<RefCell<[u8; (BLOCKS * BLOCK_SIZE) as usize]>> =
+    Mutex::new(RefCell::new([0u8; (BLOCK_SIZE * BLOCKS) as usize]));
+
+const BLOCK_SIZE: u32 = 512;
+const BLOCKS: u32 = 200;
 const USB_PACKET_SIZE: u16 = 64; // 8,16,32,64
 const MAX_LUN: u8 = 0; // max 0x0F
 
@@ -128,11 +126,15 @@ fn main() -> ! {
     let mut usb_device = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0xabcd, 0xabcd))
         .strings(&[StringDescriptors::new(LangID::EN)
             .manufacturer("Foo Bar")
-            .product("STM32 USB Flash")
+            .product("RP2040 USB Flash")
             .serial_number("FOOBAR1234567890ABCDEF")])
         .unwrap()
         .self_powered(false)
         .build();
+
+    critical_section::with(|cs| {
+        STORAGE.borrow_ref_mut(cs).copy_from_slice(FAT);
+    });
 
     loop {
         led.set_high().unwrap();
@@ -160,7 +162,7 @@ fn main() -> ! {
 fn process_command(
     mut command: Command<ScsiCommand, Scsi<BulkOnly<UsbBus, &mut [u8]>>>,
 ) -> Result<(), TransportError<BulkOnlyError>> {
-    defmt::info!("Handling: {}", command.kind);
+    defmt::info!("Handling: {:#X}", command.kind);
 
     match command.kind {
         ScsiCommand::TestUnitReady => {
@@ -254,7 +256,7 @@ fn process_command(
                 // let end = min(start + USB_PACKET_SIZE as usize - 1, end);
 
                 defmt::info!("Data transfer >>>>>>>> [{}..{}]", start, end);
-                let count = command.write_data(&FILESYSTEM[start..end])?;
+                let count = command.write_data(&STORAGE.borrow_ref_mut(cs)[start..end])?;
                 state.storage_offset += count;
             } else {
                 command.pass(state.storage_offset as u32);
@@ -267,32 +269,13 @@ fn process_command(
             let len = len as u32;
 
             let mut state = STATE.borrow_ref_mut(cs);
-            let mut write_buffer = WRITE_BUFFER.borrow_ref_mut(cs);
 
             if state.storage_offset != (len * BLOCK_SIZE) as usize {
-                loop {
-                    let start = (BLOCK_SIZE * lba) as usize + state.storage_offset;
-                    let block_offset = start % (BLOCK_SIZE as usize);
-                    let end = start + ((BLOCK_SIZE as usize) - block_offset);
-                    defmt::info!("Data transfer <<<<<<<< [{}..{}]", start, end);
-                    let count = command.read_data(&mut write_buffer[block_offset..])?;
-                    state.storage_offset += count;
-
-                    if count > 0 && state.storage_offset.is_multiple_of(BLOCK_SIZE as usize) {
-                        // received a full block
-                        defmt::warn!("Writing block {}", start / (BLOCK_SIZE as usize));
-                        unsafe {
-                            rp2040_flash::flash::flash_range_erase_and_program(
-                                ((FILESYSTEM.as_ptr() as u32) & 0xffffff)
-                                    + ((start as u32) & !0xfff),
-                                write_buffer.as_mut(),
-                                false,
-                            )
-                        };
-                    } else {
-                        break;
-                    }
-                }
+                let start = (BLOCK_SIZE * lba) as usize + state.storage_offset;
+                let end = (BLOCK_SIZE * lba) as usize + (BLOCK_SIZE * len) as usize;
+                defmt::info!("Data transfer <<<<<<<< [{}..{}]", start, end);
+                let count = command.read_data(&mut STORAGE.borrow_ref_mut(cs)[start..end])?;
+                state.storage_offset += count;
 
                 if state.storage_offset == (len * BLOCK_SIZE) as usize {
                     command.pass(state.storage_offset as u32);
