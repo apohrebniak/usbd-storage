@@ -247,7 +247,7 @@ fn process_command(
                 0x00, 0x00, 0x00, 0x08, // capacity list length
             ]);
             let _ = &mut data[4..8].copy_from_slice(&u32::to_be_bytes(BLOCKS)); // number of blocks
-            data[8] = 0x01; //unformatted media
+            data[8] = 0x02; // descriptor type: formatted media
             let block_length_be = u32::to_be_bytes(BLOCK_SIZE);
             data[9] = block_length_be[1];
             data[10] = block_length_be[2];
