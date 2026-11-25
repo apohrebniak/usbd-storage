@@ -132,66 +132,70 @@ pub enum UfiCommand {
 
 #[allow(dead_code)]
 fn parse_cb(cb: &[u8]) -> UfiCommand {
-    match cb[0] {
-        REQUEST_SENSE => UfiCommand::RequestSense { alloc_len: cb[4] },
-        INQUIRY => UfiCommand::Inquiry { alloc_len: cb[4] },
-        TEST_UNIT_READY => UfiCommand::TestUnitReady,
-        READ_CAPACITY => UfiCommand::ReadCapacity,
-        PREVENT_ALLOW_MEDIUM_REMOVAL => UfiCommand::PreventAllowMediumRemoval {
+    debug_assert!(!cb.is_empty());
+
+    // Every arm states the minimum CB length it needs, so a short command
+    // block from the host yields Unknown instead of indexing out of bounds.
+    match (cb[0], cb.len()) {
+        (REQUEST_SENSE, 5..) => UfiCommand::RequestSense { alloc_len: cb[4] },
+        (INQUIRY, 5..) => UfiCommand::Inquiry { alloc_len: cb[4] },
+        (TEST_UNIT_READY, _) => UfiCommand::TestUnitReady,
+        (READ_CAPACITY, _) => UfiCommand::ReadCapacity,
+        (PREVENT_ALLOW_MEDIUM_REMOVAL, 5..) => UfiCommand::PreventAllowMediumRemoval {
             prevent: cb[4] != 0,
         },
-        MODE_SENSE => UfiCommand::ModeSense {
+        (MODE_SENSE, 9..) => UfiCommand::ModeSense {
             page_control: cb[2] >> 6,
             page_code: cb[2] & 0b00111111,
-            param_list_len: u16::from_be_bytes(cb[7..9].try_into().unwrap()),
+            param_list_len: u16::from_be_bytes([cb[7], cb[8]]),
         },
-        READ_10 => UfiCommand::Read {
-            lba: u32::from_be_bytes(cb[2..=5].try_into().unwrap()),
-            len: u16::from_be_bytes(cb[7..=8].try_into().unwrap()) as u32,
+        (READ_10, 9..) => UfiCommand::Read {
+            lba: u32::from_be_bytes([cb[2], cb[3], cb[4], cb[5]]),
+            len: u16::from_be_bytes([cb[7], cb[8]]) as u32,
         },
-        READ_12 => UfiCommand::Read {
-            lba: u32::from_be_bytes(cb[2..=5].try_into().unwrap()),
-            len: u32::from_be_bytes(cb[6..=9].try_into().unwrap()),
+        (READ_12, 10..) => UfiCommand::Read {
+            lba: u32::from_be_bytes([cb[2], cb[3], cb[4], cb[5]]),
+            len: u32::from_be_bytes([cb[6], cb[7], cb[8], cb[9]]),
         },
-        WRITE_10 => UfiCommand::Write {
-            lba: u32::from_be_bytes(cb[2..=5].try_into().unwrap()),
-            len: u16::from_be_bytes(cb[7..=8].try_into().unwrap()) as u32,
+        (WRITE_10, 9..) => UfiCommand::Write {
+            lba: u32::from_be_bytes([cb[2], cb[3], cb[4], cb[5]]),
+            len: u16::from_be_bytes([cb[7], cb[8]]) as u32,
             verify: false,
         },
-        WRITE_12 => UfiCommand::Write {
-            lba: u32::from_be_bytes(cb[2..=5].try_into().unwrap()),
-            len: u32::from_be_bytes(cb[6..=9].try_into().unwrap()),
+        (WRITE_12, 10..) => UfiCommand::Write {
+            lba: u32::from_be_bytes([cb[2], cb[3], cb[4], cb[5]]),
+            len: u32::from_be_bytes([cb[6], cb[7], cb[8], cb[9]]),
             verify: false,
         },
-        WRITE_AND_VERIFY => UfiCommand::Write {
-            lba: u32::from_be_bytes(cb[2..=5].try_into().unwrap()),
-            len: u16::from_be_bytes(cb[7..=8].try_into().unwrap()) as u32,
+        (WRITE_AND_VERIFY, 9..) => UfiCommand::Write {
+            lba: u32::from_be_bytes([cb[2], cb[3], cb[4], cb[5]]),
+            len: u16::from_be_bytes([cb[7], cb[8]]) as u32,
             verify: true,
         },
-        FORMAT_UNIT => UfiCommand::FormatUnit {
+        (FORMAT_UNIT, 9..) => UfiCommand::FormatUnit {
             track: cb[2],
-            parameter_list_len: u16::from_be_bytes(cb[7..=8].try_into().unwrap()),
+            parameter_list_len: u16::from_be_bytes([cb[7], cb[8]]),
         },
-        MODE_SELECT => UfiCommand::ModeSelect {
-            parameter_list_len: u16::from_be_bytes(cb[7..=8].try_into().unwrap()),
+        (MODE_SELECT, 9..) => UfiCommand::ModeSelect {
+            parameter_list_len: u16::from_be_bytes([cb[7], cb[8]]),
         },
-        READ_FORMAT_CAPACITIES => UfiCommand::ReadFormatCapacities {
-            alloc_len: u16::from_be_bytes(cb[7..=8].try_into().unwrap()),
+        (READ_FORMAT_CAPACITIES, 9..) => UfiCommand::ReadFormatCapacities {
+            alloc_len: u16::from_be_bytes([cb[7], cb[8]]),
         },
-        REZERO_UNIT => UfiCommand::RezeroUnit,
-        SEEK_10 => UfiCommand::Seek {
-            lba: u32::from_be_bytes(cb[2..=5].try_into().unwrap()),
+        (REZERO_UNIT, _) => UfiCommand::RezeroUnit,
+        (SEEK_10, 6..) => UfiCommand::Seek {
+            lba: u32::from_be_bytes([cb[2], cb[3], cb[4], cb[5]]),
         },
-        SEND_DIAGNOSTIC => UfiCommand::SendDiagnostic {
+        (SEND_DIAGNOSTIC, 2..) => UfiCommand::SendDiagnostic {
             default: cb[1] & 1 << 2 > 0,
         },
-        START_STOP => UfiCommand::StartStop {
+        (START_STOP, 5..) => UfiCommand::StartStop {
             start: cb[4] & 1 > 0,
             eject: cb[4] == 2,
         },
-        VERIFY => UfiCommand::Verify {
-            lba: u32::from_be_bytes(cb[2..=5].try_into().unwrap()),
-            len: u16::from_be_bytes(cb[7..=8].try_into().unwrap()),
+        (VERIFY, 9..) => UfiCommand::Verify {
+            lba: u32::from_be_bytes([cb[2], cb[3], cb[4], cb[5]]),
+            len: u16::from_be_bytes([cb[7], cb[8]]),
         },
         _ => UfiCommand::Unknown,
     }
@@ -309,6 +313,88 @@ where
     fn poll(&mut self) {
         if let Err(err) = self.transport.poll() {
             trace!("usb: ufi: poll: {}", err);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every opcode the parser knows about, paired with the minimum CB length
+    /// its fields require.
+    const OPCODES: [(u8, usize); 20] = [
+        (FORMAT_UNIT, 9),
+        (INQUIRY, 5),
+        (MODE_SELECT, 9),
+        (MODE_SENSE, 9),
+        (PREVENT_ALLOW_MEDIUM_REMOVAL, 5),
+        (READ_10, 9),
+        (READ_12, 10),
+        (READ_CAPACITY, 1),
+        (READ_FORMAT_CAPACITIES, 9),
+        (REQUEST_SENSE, 5),
+        (REZERO_UNIT, 1),
+        (SEEK_10, 6),
+        (SEND_DIAGNOSTIC, 2),
+        (START_STOP, 5),
+        (TEST_UNIT_READY, 1),
+        (VERIFY, 9),
+        (WRITE_10, 9),
+        (WRITE_12, 10),
+        (WRITE_AND_VERIFY, 9),
+        (0xFF, 1), // not a UFI opcode
+    ];
+
+    #[test]
+    fn parse_cb_short_command_blocks_do_not_panic() {
+        // bCBWCBLength is host-controlled (1..=16). Every length shorter than
+        // what an opcode needs must yield Unknown instead of panicking.
+        for (opcode, min_len) in OPCODES {
+            for len in 1..min_len {
+                let mut cb = [0u8; 16];
+                cb[0] = opcode;
+                assert!(
+                    matches!(parse_cb(&cb[..len]), UfiCommand::Unknown),
+                    "opcode {opcode:#04x} with CB length {len}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn parse_cb_any_length_does_not_panic() {
+        for (opcode, _) in OPCODES {
+            for len in 1..=16 {
+                let mut cb = [0u8; 16];
+                cb[0] = opcode;
+                let _ = parse_cb(&cb[..len]);
+            }
+        }
+    }
+
+    #[test]
+    fn parse_cb_full_read10_parses() {
+        let cb = [READ_10, 0, 0, 0, 0x01, 0x02, 0, 0x00, 0x08, 0, 0, 0];
+        match parse_cb(&cb) {
+            UfiCommand::Read { lba, len } => {
+                assert_eq!(lba, 0x0102);
+                assert_eq!(len, 8);
+            }
+            other => panic!("expected Read, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_cb_full_write12_parses() {
+        let cb = [WRITE_12, 0, 0, 0, 0, 0x10, 0, 0, 0x01, 0x00, 0, 0];
+        match parse_cb(&cb) {
+            UfiCommand::Write { lba, len, verify } => {
+                assert_eq!(lba, 0x10);
+                assert_eq!(len, 0x100);
+                assert!(!verify);
+            }
+            other => panic!("expected Write, got {other:?}"),
         }
     }
 }
