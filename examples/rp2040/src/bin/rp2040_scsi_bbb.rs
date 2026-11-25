@@ -159,6 +159,11 @@ fn main() -> ! {
     }
 }
 
+/// Whether the blocks `lba..lba + len` lie within the disk.
+fn lba_range_valid(lba: u32, len: u32) -> bool {
+    lba as u64 + len as u64 <= BLOCKS as u64
+}
+
 fn process_command(
     mut command: Command<ScsiCommand, Scsi<BulkOnly<UsbBus, &mut [u8]>>>,
 ) -> Result<(), TransportError<BulkOnlyError>> {
@@ -248,6 +253,15 @@ fn process_command(
 
             let mut state = STATE.borrow_ref_mut(cs);
 
+            if !lba_range_valid(lba, len) {
+                defmt::error!("LBA out of range: lba={} len={}", lba, len);
+                state.sense_key.replace(0x05); // illegal request Sense Key
+                state.sense_key_code.replace(0x21); // Logical block address out of range ASC
+                state.sense_qualifier.replace(0x00); // Logical block address out of range ASCQ
+                command.fail(0);
+                return Ok(());
+            }
+
             if state.storage_offset != (len * BLOCK_SIZE) as usize {
                 let start = (BLOCK_SIZE * lba) as usize + state.storage_offset;
                 let end = (BLOCK_SIZE * lba) as usize + (BLOCK_SIZE * len) as usize;
@@ -269,6 +283,15 @@ fn process_command(
             let len = len as u32;
 
             let mut state = STATE.borrow_ref_mut(cs);
+
+            if !lba_range_valid(lba, len) {
+                defmt::error!("LBA out of range: lba={} len={}", lba, len);
+                state.sense_key.replace(0x05); // illegal request Sense Key
+                state.sense_key_code.replace(0x21); // Logical block address out of range ASC
+                state.sense_qualifier.replace(0x00); // Logical block address out of range ASCQ
+                command.fail(0);
+                return Ok(());
+            }
 
             if state.storage_offset != (len * BLOCK_SIZE) as usize {
                 let start = (BLOCK_SIZE * lba) as usize + state.storage_offset;

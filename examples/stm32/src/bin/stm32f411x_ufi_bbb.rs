@@ -35,6 +35,7 @@ static STATE: Mutex<RefCell<State>> = Mutex::new(RefCell::new(State {
 }));
 
 const BLOCK_SIZE: usize = 512;
+const BLOCKS: u32 = 2880; // 1.44 MB floppy, see ReadCapacity
 const USB_PACKET_SIZE: u16 = 64; // 8,16,32,64
 
 #[panic_handler]
@@ -140,6 +141,11 @@ fn main() -> ! {
     }
 }
 
+/// Whether the blocks `lba..lba + len` lie within the disk.
+fn lba_range_valid(lba: u32, len: u32) -> bool {
+    lba as u64 + len as u64 <= BLOCKS as u64
+}
+
 #[allow(clippy::type_complexity)]
 fn process_command(
     mut command: Command<UfiCommand, Ufi<BulkOnly<UsbBus<USB>, &mut [u8]>>>,
@@ -211,12 +217,21 @@ fn process_command(
         UfiCommand::Read { lba, len } => critical_section::with(|cs| {
             let mut state = STATE.borrow_ref_mut(cs);
 
+            if !lba_range_valid(lba, len) {
+                defmt::error!("LBA out of range: lba={} len={}", lba, len);
+                state.sense_key.replace(0x05); // illegal request
+                state.sense_key_code.replace(0x21); // Logical block address out of range
+                state.sense_qualifier.replace(0x00); // Logical block address out of range
+                command.fail(0);
+                return Ok(());
+            }
+
             if state.storage_offset != len as usize * BLOCK_SIZE {
-                const DUMP_MAX_LBA: u32 = 0xCE;
-                if lba < DUMP_MAX_LBA {
+                let start = (BLOCK_SIZE * lba as usize) + state.storage_offset;
+                if start < FAT.len() {
                     /* requested data from dump */
-                    let start = (BLOCK_SIZE * lba as usize) + state.storage_offset;
                     let end = (BLOCK_SIZE * lba as usize) + (BLOCK_SIZE * len as usize);
+                    let end = core::cmp::min(end, FAT.len());
                     defmt::info!("Data transfer >>>>>>>> [{}..{}]", start, end);
                     let count = command.write_data(&FAT[start..end])?;
                     state.storage_offset += count;
