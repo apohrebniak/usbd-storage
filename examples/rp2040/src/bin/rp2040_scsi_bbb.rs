@@ -223,7 +223,7 @@ fn process_command(
         }
         ScsiCommand::ReadCapacity16 { .. } => {
             let mut data = [0u8; 16];
-            let _ = &mut data[0..8].copy_from_slice(&u32::to_be_bytes(BLOCKS - 1));
+            let _ = &mut data[0..8].copy_from_slice(&u64::to_be_bytes((BLOCKS - 1) as u64));
             let _ = &mut data[8..12].copy_from_slice(&u32::to_be_bytes(BLOCK_SIZE));
             command.try_write_data_all(&data)?;
             command.pass(data.len() as u32);
