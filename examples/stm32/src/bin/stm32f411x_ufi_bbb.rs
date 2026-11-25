@@ -141,6 +141,11 @@ fn main() -> ! {
     }
 }
 
+/// Truncates a response to the allocation length requested by the host.
+fn truncate_to_alloc_len(data: &[u8], alloc_len: usize) -> &[u8] {
+    &data[..core::cmp::min(data.len(), alloc_len)]
+}
+
 /// Whether the blocks `lba..lba + len` lie within the disk.
 fn lba_range_valid(lba: u32, len: u32) -> bool {
     lba as u64 + len as u64 <= BLOCKS as u64
@@ -153,13 +158,14 @@ fn process_command(
     defmt::info!("Handling: {}", command.kind);
 
     match command.kind {
-        UfiCommand::Inquiry { .. } => {
+        UfiCommand::Inquiry { alloc_len, .. } => {
             let data = [
                 0x00, 0b10000000, 0, 0x01, 0x1F, 0, 0, 0, b'F', b'o', b'o', b' ', b'B', b'a', b'r',
                 b'0', b'F', b'o', b'o', b' ', b'B', b'a', b'r', b'0', b'F', b'o', b'o', b' ', b'B',
                 b'a', b'r', b'0', b'1', b'.', b'2', b'3',
             ];
-            command.try_write_data_all(&data)?;
+            let data = truncate_to_alloc_len(&data, alloc_len as usize);
+            command.try_write_data_all(data)?;
             command.pass(data.len() as u32);
         }
         UfiCommand::StartStop { .. }
@@ -172,7 +178,7 @@ fn process_command(
             command.try_write_data_all(&data)?;
             command.pass(data.len() as u32);
         }
-        UfiCommand::RequestSense { .. } => critical_section::with(|cs| {
+        UfiCommand::RequestSense { alloc_len, .. } => critical_section::with(|cs| {
             let mut state = STATE.borrow_ref_mut(cs);
 
             let data = [
@@ -195,16 +201,18 @@ fn process_command(
                 0x00,
                 0x00,
             ];
-            command.try_write_data_all(&data)?;
+            let data = truncate_to_alloc_len(&data, alloc_len as usize);
+            command.try_write_data_all(data)?;
 
             state.reset();
             command.pass(data.len() as u32);
             Ok(())
         })?,
-        UfiCommand::ModeSense { .. } => {
+        UfiCommand::ModeSense { param_list_len, .. } => {
             /* Read Only */
             let data = [0x00, 0x46, 0x02, 0x80, 0x00, 0x00, 0x00, 0x00];
-            command.try_write_data_all(&data)?;
+            let data = truncate_to_alloc_len(&data, param_list_len as usize);
+            command.try_write_data_all(data)?;
 
             /* Read Write */
             // command.try_write_data_all(&[0x00, 0x46, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00])?;
