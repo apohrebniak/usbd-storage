@@ -432,6 +432,12 @@ where
 
         // allow a short packet if needed
         let bytes_sent = if self.left_to_transfer < self.packet_size() as u32 {
+            // A short packet ends the data phase for the host, so only send it
+            // once all remaining data is in the buffer. Otherwise the host takes
+            // the rest of the data for the CSW.
+            if self.buf.available_read() < self.left_to_transfer as usize {
+                return Ok(());
+            }
             self.write_packet()?
         } else {
             self.try_write_full_packet()?
@@ -903,6 +909,52 @@ mod tests {
             });
             assert_eq!(csw.status, 0x02, "ps={ps}");
             assert_eq!(data.len(), 16, "ps={ps}");
+        }
+    }
+
+    #[test]
+    fn partially_written_data_does_not_end_data_phase_early() {
+        // The device provides the data of a Data-In transfer in two chunks. The
+        // first chunk must not go out as a short packet, which would end the
+        // data phase before the host has received all data.
+        for ps in PACKET_SIZES {
+            let psz = ps as usize;
+            // (transfer length, first chunk): the whole transfer fits in less
+            // than a packet, or the last packet is short
+            for (len, first) in [(psz - 2, psz / 2), (psz + 4, psz + 2)] {
+                let (shared, mut bbb) = new_bbb(ps);
+                enqueue(&shared, &cbw(len as u32, Host::DataIn), ps);
+                for _ in 0..CBW_LEN.div_ceil(psz) {
+                    let _ = bbb.poll();
+                }
+                assert!(bbb.get_command().is_some());
+
+                let data: Vec<u8> = (0..len as u8).collect();
+                assert_eq!(bbb.write_data(&data[..first]).unwrap(), first);
+                for _ in 0..4 {
+                    let _ = bbb.poll();
+                }
+                let sent: Vec<usize> = shared.input.lock().unwrap().iter().map(Vec::len).collect();
+                assert!(
+                    sent.iter().all(|&n| n == psz),
+                    "ps={ps} len={len}: short packet sent before all data was written: {sent:?}"
+                );
+
+                assert_eq!(bbb.write_data(&data[first..]).unwrap(), len - first);
+                bbb.set_status(CommandStatus::Passed, len as u32);
+                for _ in 0..8 {
+                    let _ = bbb.poll();
+                    if matches!(bbb.state, State::CommandTransfer) {
+                        break;
+                    }
+                }
+
+                let stream = std::mem::take(&mut *shared.input.lock().unwrap()).concat();
+                let (wire_data, raw_csw) = stream.split_at(stream.len() - CSW_LEN);
+                assert_eq!(wire_data, &data[..], "ps={ps} len={len}");
+                assert!(raw_csw.starts_with(&CSW_SIGNATURE_LE));
+                assert_eq!(raw_csw[12], 0, "ps={ps} len={len}: status");
+            }
         }
     }
 
