@@ -208,7 +208,7 @@ fn process_command(
                 0x00,
                 0x00,
                 0x00, // INFORMATION. Device-specific or command-specific information.
-                0x00, // ADDITIONAL SENSE LENGTH.
+                0x0A, // ADDITIONAL SENSE LENGTH. 18 bytes total - 8 byte header
                 0x00,
                 0x00,
                 0x00,
