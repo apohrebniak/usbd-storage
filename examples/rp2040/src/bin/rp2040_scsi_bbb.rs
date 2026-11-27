@@ -159,6 +159,16 @@ fn main() -> ! {
     }
 }
 
+/// Truncates a response to the allocation length requested by the host.
+fn truncate_to_alloc_len(data: &[u8], alloc_len: usize) -> &[u8] {
+    &data[..core::cmp::min(data.len(), alloc_len)]
+}
+
+/// Whether the blocks `lba..lba + len` lie within the disk.
+fn lba_range_valid(lba: u32, len: u32) -> bool {
+    lba as u64 + len as u64 <= BLOCKS as u64
+}
+
 fn process_command(
     mut command: Command<ScsiCommand, Scsi<BulkOnly<UsbBus, &mut [u8]>>>,
 ) -> Result<(), TransportError<BulkOnlyError>> {
@@ -168,7 +178,7 @@ fn process_command(
         ScsiCommand::TestUnitReady => {
             command.pass(0);
         }
-        ScsiCommand::Inquiry { .. } => {
+        ScsiCommand::Inquiry { alloc_len, .. } => {
             let data = [
                 0x00, // periph qualifier, periph device type
                 0x80, // Removable
@@ -183,10 +193,11 @@ fn process_command(
                 b's', b'h', // 16-byte product identification
                 b'1', b'.', b'2', b'3', // 4-byte product revision
             ];
-            command.try_write_data_all(&data)?;
+            let data = truncate_to_alloc_len(&data, alloc_len as usize);
+            command.try_write_data_all(data)?;
             command.pass(data.len() as u32);
         }
-        ScsiCommand::RequestSense { .. } => critical_section::with(|cs| {
+        ScsiCommand::RequestSense { alloc_len, .. } => critical_section::with(|cs| {
             let mut state = STATE.borrow_ref_mut(cs);
 
             let data = [
@@ -197,7 +208,7 @@ fn process_command(
                 0x00,
                 0x00,
                 0x00, // INFORMATION. Device-specific or command-specific information.
-                0x00, // ADDITIONAL SENSE LENGTH.
+                0x0A, // ADDITIONAL SENSE LENGTH. 18 bytes total - 8 byte header
                 0x00,
                 0x00,
                 0x00,
@@ -209,7 +220,8 @@ fn process_command(
                 0x00,
                 0x00,
             ];
-            command.try_write_data_all(&data)?;
+            let data = truncate_to_alloc_len(&data, alloc_len as usize);
+            command.try_write_data_all(data)?;
             state.reset();
             command.pass(data.len() as u32);
             Ok(())
@@ -221,32 +233,43 @@ fn process_command(
             command.try_write_data_all(&data)?;
             command.pass(data.len() as u32);
         }
-        ScsiCommand::ReadCapacity16 { .. } => {
+        ScsiCommand::ReadCapacity16 { alloc_len, .. } => {
             let mut data = [0u8; 16];
-            let _ = &mut data[0..8].copy_from_slice(&u32::to_be_bytes(BLOCKS - 1));
+            let _ = &mut data[0..8].copy_from_slice(&u64::to_be_bytes((BLOCKS - 1) as u64));
             let _ = &mut data[8..12].copy_from_slice(&u32::to_be_bytes(BLOCK_SIZE));
-            command.try_write_data_all(&data)?;
+            let data = truncate_to_alloc_len(&data, alloc_len as usize);
+            command.try_write_data_all(data)?;
             command.pass(data.len() as u32);
         }
-        ScsiCommand::ReadFormatCapacities { .. } => {
+        ScsiCommand::ReadFormatCapacities { alloc_len, .. } => {
             let mut data = [0u8; 12];
             let _ = &mut data[0..4].copy_from_slice(&[
                 0x00, 0x00, 0x00, 0x08, // capacity list length
             ]);
             let _ = &mut data[4..8].copy_from_slice(&u32::to_be_bytes(BLOCKS)); // number of blocks
-            data[8] = 0x01; //unformatted media
+            data[8] = 0x02; // descriptor type: formatted media
             let block_length_be = u32::to_be_bytes(BLOCK_SIZE);
             data[9] = block_length_be[1];
             data[10] = block_length_be[2];
             data[11] = block_length_be[3];
 
-            command.try_write_data_all(&data)?;
+            let data = truncate_to_alloc_len(&data, alloc_len as usize);
+            command.try_write_data_all(data)?;
             command.pass(data.len() as u32);
         }
         ScsiCommand::Read { lba, len } => critical_section::with(|cs| {
             let len = len as u32;
 
             let mut state = STATE.borrow_ref_mut(cs);
+
+            if !lba_range_valid(lba, len) {
+                defmt::error!("LBA out of range: lba={} len={}", lba, len);
+                state.sense_key.replace(0x05); // illegal request Sense Key
+                state.sense_key_code.replace(0x21); // Logical block address out of range ASC
+                state.sense_qualifier.replace(0x00); // Logical block address out of range ASCQ
+                command.fail(0);
+                return Ok(());
+            }
 
             if state.storage_offset != (len * BLOCK_SIZE) as usize {
                 let start = (BLOCK_SIZE * lba) as usize + state.storage_offset;
@@ -270,6 +293,15 @@ fn process_command(
 
             let mut state = STATE.borrow_ref_mut(cs);
 
+            if !lba_range_valid(lba, len) {
+                defmt::error!("LBA out of range: lba={} len={}", lba, len);
+                state.sense_key.replace(0x05); // illegal request Sense Key
+                state.sense_key_code.replace(0x21); // Logical block address out of range ASC
+                state.sense_qualifier.replace(0x00); // Logical block address out of range ASCQ
+                command.fail(0);
+                return Ok(());
+            }
+
             if state.storage_offset != (len * BLOCK_SIZE) as usize {
                 let start = (BLOCK_SIZE * lba) as usize + state.storage_offset;
                 let end = (BLOCK_SIZE * lba) as usize + (BLOCK_SIZE * len) as usize;
@@ -288,19 +320,21 @@ fn process_command(
 
             Ok(())
         })?,
-        ScsiCommand::ModeSense6 { .. } => {
+        ScsiCommand::ModeSense6 { alloc_len, .. } => {
             let data = [
                 0x03, // number of bytes that follow
                 0x00, // the media type is SBC
                 0x00, // not write-protected, no cache-control bytes support
                 0x00, // no mode-parameter block descriptors
             ];
-            command.try_write_data_all(&data)?;
+            let data = truncate_to_alloc_len(&data, alloc_len as usize);
+            command.try_write_data_all(data)?;
             command.pass(data.len() as u32);
         }
-        ScsiCommand::ModeSense10 { .. } => {
+        ScsiCommand::ModeSense10 { alloc_len, .. } => {
             let data = [0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
-            command.try_write_data_all(&data)?;
+            let data = truncate_to_alloc_len(&data, alloc_len as usize);
+            command.try_write_data_all(data)?;
             command.pass(data.len() as u32);
         }
         ref unknown_scsi_kind => {

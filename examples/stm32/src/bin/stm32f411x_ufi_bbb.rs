@@ -35,6 +35,7 @@ static STATE: Mutex<RefCell<State>> = Mutex::new(RefCell::new(State {
 }));
 
 const BLOCK_SIZE: usize = 512;
+const BLOCKS: u32 = 2880; // 1.44 MB floppy, see ReadCapacity
 const USB_PACKET_SIZE: u16 = 64; // 8,16,32,64
 
 #[panic_handler]
@@ -140,6 +141,16 @@ fn main() -> ! {
     }
 }
 
+/// Truncates a response to the allocation length requested by the host.
+fn truncate_to_alloc_len(data: &[u8], alloc_len: usize) -> &[u8] {
+    &data[..core::cmp::min(data.len(), alloc_len)]
+}
+
+/// Whether the blocks `lba..lba + len` lie within the disk.
+fn lba_range_valid(lba: u32, len: u32) -> bool {
+    lba as u64 + len as u64 <= BLOCKS as u64
+}
+
 #[allow(clippy::type_complexity)]
 fn process_command(
     mut command: Command<UfiCommand, Ufi<BulkOnly<UsbBus<USB>, &mut [u8]>>>,
@@ -147,13 +158,14 @@ fn process_command(
     defmt::info!("Handling: {}", command.kind);
 
     match command.kind {
-        UfiCommand::Inquiry { .. } => {
+        UfiCommand::Inquiry { alloc_len, .. } => {
             let data = [
                 0x00, 0b10000000, 0, 0x01, 0x1F, 0, 0, 0, b'F', b'o', b'o', b' ', b'B', b'a', b'r',
                 b'0', b'F', b'o', b'o', b' ', b'B', b'a', b'r', b'0', b'F', b'o', b'o', b' ', b'B',
                 b'a', b'r', b'0', b'1', b'.', b'2', b'3',
             ];
-            command.try_write_data_all(&data)?;
+            let data = truncate_to_alloc_len(&data, alloc_len as usize);
+            command.try_write_data_all(data)?;
             command.pass(data.len() as u32);
         }
         UfiCommand::StartStop { .. }
@@ -166,7 +178,7 @@ fn process_command(
             command.try_write_data_all(&data)?;
             command.pass(data.len() as u32);
         }
-        UfiCommand::RequestSense { .. } => critical_section::with(|cs| {
+        UfiCommand::RequestSense { alloc_len, .. } => critical_section::with(|cs| {
             let mut state = STATE.borrow_ref_mut(cs);
 
             let data = [
@@ -189,16 +201,18 @@ fn process_command(
                 0x00,
                 0x00,
             ];
-            command.try_write_data_all(&data)?;
+            let data = truncate_to_alloc_len(&data, alloc_len as usize);
+            command.try_write_data_all(data)?;
 
             state.reset();
             command.pass(data.len() as u32);
             Ok(())
         })?,
-        UfiCommand::ModeSense { .. } => {
+        UfiCommand::ModeSense { param_list_len, .. } => {
             /* Read Only */
             let data = [0x00, 0x46, 0x02, 0x80, 0x00, 0x00, 0x00, 0x00];
-            command.try_write_data_all(&data)?;
+            let data = truncate_to_alloc_len(&data, param_list_len as usize);
+            command.try_write_data_all(data)?;
 
             /* Read Write */
             // command.try_write_data_all(&[0x00, 0x46, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00])?;
@@ -211,12 +225,21 @@ fn process_command(
         UfiCommand::Read { lba, len } => critical_section::with(|cs| {
             let mut state = STATE.borrow_ref_mut(cs);
 
+            if !lba_range_valid(lba, len) {
+                defmt::error!("LBA out of range: lba={} len={}", lba, len);
+                state.sense_key.replace(0x05); // illegal request
+                state.sense_key_code.replace(0x21); // Logical block address out of range
+                state.sense_qualifier.replace(0x00); // Logical block address out of range
+                command.fail(0);
+                return Ok(());
+            }
+
             if state.storage_offset != len as usize * BLOCK_SIZE {
-                const DUMP_MAX_LBA: u32 = 0xCE;
-                if lba < DUMP_MAX_LBA {
+                let start = (BLOCK_SIZE * lba as usize) + state.storage_offset;
+                if start < FAT.len() {
                     /* requested data from dump */
-                    let start = (BLOCK_SIZE * lba as usize) + state.storage_offset;
                     let end = (BLOCK_SIZE * lba as usize) + (BLOCK_SIZE * len as usize);
+                    let end = core::cmp::min(end, FAT.len());
                     defmt::info!("Data transfer >>>>>>>> [{}..{}]", start, end);
                     let count = command.write_data(&FAT[start..end])?;
                     state.storage_offset += count;
