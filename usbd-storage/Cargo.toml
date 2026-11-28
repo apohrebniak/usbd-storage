@@ -34,6 +34,10 @@ extended_addressing = []
 name = "scsi_bbb"
 required-features = ["scsi", "bbb", "extended_addressing"]
 
+[[test]]
+name = "reset_recovery_bbb"
+required-features = ["scsi", "ufi", "bbb", "extended_addressing"]
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]

@@ -9,6 +9,14 @@ use usb_device::{UsbDirection, UsbError};
 const MAX_CB_LEN: u8 = 16;
 const CSW_LEN: u8 = 13;
 
+/// Address of the Bulk-Out endpoint, as the host names it in `wIndex`
+///
+/// usb-device masks `wIndex` with `0x8f` before it looks an endpoint up, so an address
+/// with bits 4 to 6 set can never be the target of a `CLEAR_FEATURE(ENDPOINT_HALT)`
+pub const BULK_OUT_ADDR: u8 = 0x01;
+/// Address of the Bulk-In endpoint, as the host names it in `wIndex`
+pub const BULK_IN_ADDR: u8 = 0x81;
+
 #[derive(Debug, Eq, PartialEq)]
 pub enum CommandStatus {
     Passed = 0x00,
@@ -211,6 +219,13 @@ impl DummyUsbBus {
         (!lock.ep0.stalled).then(|| lock.ep0.data_in.clone())
     }
 
+    /// Whether the device holds a bulk endpoint in the STALL condition, as the host finds
+    /// out by polling it
+    #[allow(dead_code)]
+    pub fn is_bulk_stalled(&self, addr: u8) -> bool {
+        UsbBus::is_stalled(self, EndpointAddress::from(addr))
+    }
+
     pub fn bytes_processed(&self) -> BytesProcessed {
         let lock = self.inner.lock().unwrap();
         BytesProcessed {
@@ -225,6 +240,19 @@ impl DummyUsbBus {
                 .map(|ep| (ep.bytes_written, ep.bytes_read))
                 .unwrap()),
         }
+    }
+}
+
+/// Drive a class until it has no IO left to do
+pub fn drive<C: UsbClass<DummyUsbBus>>(bus: &DummyUsbBus, class: &mut C) {
+    let mut bytes_processed = bus.bytes_processed();
+    loop {
+        class.poll();
+        let new = bus.bytes_processed();
+        if new == bytes_processed {
+            break;
+        }
+        bytes_processed = new;
     }
 }
 
@@ -282,8 +310,6 @@ impl UsbBus for DummyUsbBus {
     ) -> usb_device::Result<EndpointAddress> {
         assert!(!self.inner.lock().unwrap().enabled);
 
-        const EP_OUT_ADDR: usize = 0xFF;
-        const EP_IN_ADDR: usize = 0xEE;
         const EP_CTRL: usize = 0;
 
         if matches!(ep_type, EndpointType::Control) {
@@ -293,12 +319,12 @@ impl UsbBus for DummyUsbBus {
         let mut lock = self.inner.lock().unwrap();
         let addr = match ep_dir {
             UsbDirection::Out => {
-                let addr = EndpointAddress::from(EP_OUT_ADDR as u8);
+                let addr = EndpointAddress::from(BULK_OUT_ADDR);
                 lock.ep_out.replace(DummyEp::new(addr, max_packet_size));
                 addr
             }
             UsbDirection::In => {
-                let addr = EndpointAddress::from(EP_IN_ADDR as u8);
+                let addr = EndpointAddress::from(BULK_IN_ADDR);
                 lock.ep_in.replace(DummyEp::new(addr, max_packet_size));
                 addr
             }

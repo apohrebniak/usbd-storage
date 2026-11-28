@@ -1,7 +1,7 @@
 mod common;
 
 use crate::common::Step;
-use crate::common::bbb::{Cbw, CommandStatus, Csw, DataDirection, DummyUsbBus, setup};
+use crate::common::bbb::{Cbw, CommandStatus, Csw, DataDirection, DummyUsbBus, drive, setup};
 use crate::common::scsi::cmd_into_bytes;
 use std::time::Duration;
 use usb_device::bus::UsbBusAllocator;
@@ -271,19 +271,6 @@ fn class_requests_for_another_interface_are_left_alone() {
         !has_command(&mut scsi),
         "a Mass Storage Reset for this interface should drop the command in flight"
     );
-}
-
-/// Drive the device until it has no IO left to do
-fn drive(bus: &DummyUsbBus, scsi: &mut Scsi<BulkOnly<DummyUsbBus, &mut [u8]>>) {
-    let mut bytes_processed = bus.bytes_processed();
-    loop {
-        scsi.poll();
-        let new = bus.bytes_processed();
-        if new == bytes_processed {
-            break;
-        }
-        bytes_processed = new;
-    }
 }
 
 /// Whether a command waits for the subclass, which leaves it in flight
